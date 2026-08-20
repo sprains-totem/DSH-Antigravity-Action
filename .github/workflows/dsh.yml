@@ -1,0 +1,109 @@
+name: DeepSeek Harness Server (Direct Native 3080 & Fully Unlocked)
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_token:
+        description: 'Antigravity OAuth Refresh Token'
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+  actions: write
+  checks: write
+
+jobs:
+  dsh-server:
+    name: Run DeepSeek Harness (Antigravity Suite & Direct Native Cloudflare Tunnel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install System Tools & Global DSH
+        run: |
+          sudo apt-get update && sudo apt-get install -y tmate curl
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          rm cloudflared.deb
+          sudo npm install -g @deepseek-ai/dsh
+          # 赋予 runner 用户对全局 node_modules 的完全读写权限
+          sudo chown -R $(whoami) /usr/local/lib/node_modules
+
+      - name: Start Tmate SSH Session
+        run: |
+          tmate -S /tmp/tmate.sock new-session -d || true
+          timeout 10s tmate -S /tmp/tmate.sock wait tmate-ready || true
+          TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || echo "tmate ssh not available")
+          TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}' 2>/dev/null || echo "tmate web not available")
+          echo "TMATE_SSH=$TMATE_SSH" >> $GITHUB_ENV
+          echo "TMATE_WEB=$TMATE_WEB" >> $GITHUB_ENV
+          echo "=========================================================="
+          echo "🔑 Tmate SSH: $TMATE_SSH"
+          echo "🌐 Tmate Web: $TMATE_WEB"
+          echo "=========================================================="
+
+      - name: Setup DSH Profile, Plugins & Full Restriction Lifting
+        run: |
+          mkdir -p ~/.dsh/profiles/web/node_modules ~/.dsh/profiles/web/plugins
+          cp -r plugins/* ~/.dsh/profiles/web/node_modules/
+          cp -r plugins/* ~/.dsh/profiles/web/plugins/
+          sudo cp -r plugins/* /usr/local/lib/node_modules/ || true
+          cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
+
+          # 执行全局深度解禁（解除全部来源限制、特权方法限制、前端 persistence 限制与模型设置界面）
+          node unlock-dsh.mjs
+
+          REFRESH_TOKEN="${{ inputs.refresh_token || secrets.ANTIGRAVITY_REFRESH_TOKEN }}"
+          if [ -n "$REFRESH_TOKEN" ]; then
+            mkdir -p ~/.dsh
+            cat <<EOF > ~/.dsh/.credentials.yaml
+          ANTIGRAVITY_REFRESH_TOKEN: "$REFRESH_TOKEN"
+          EOF
+            echo "ANTIGRAVITY_REFRESH_TOKEN=$REFRESH_TOKEN" >> $GITHUB_ENV
+            echo "Configured ANTIGRAVITY_REFRESH_TOKEN credential."
+          fi
+
+      - name: Launch DeepSeek Harness Server (Direct Native 3080)
+        run: |
+          (
+            for i in $(seq 1 60); do
+              if [ -f /tmp/status.json ] || [ -f ~/.dsh/status.json ] || [ -f status.json ]; then
+                node -e '
+                const fs = require("fs");
+                const paths = ["status.json", "/tmp/status.json", (process.env.HOME || "") + "/.dsh/status.json"];
+                for (const p of paths) {
+                  try {
+                    const data = JSON.parse(fs.readFileSync(p, "utf8"));
+                    if (data.tunnelUrl) {
+                      console.log("==========================================================");
+                      console.log("🎉 DeepSeek Harness Live URL (Fully Unlocked Direct Native):", data.tunnelUrl);
+                      console.log("==========================================================");
+                      process.exit(0);
+                    }
+                  } catch {}
+                }
+                process.exit(1);
+                ' && break
+              fi
+              sleep 1
+            done
+          ) &
+
+          echo "Starting DeepSeek Harness on native port 3080..."
+          dsh web --port 3080
+        env:
+          TMATE_SSH: ${{ env.TMATE_SSH }}
+          TMATE_WEB: ${{ env.TMATE_WEB }}
