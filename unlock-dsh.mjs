@@ -95,6 +95,11 @@ function walkAndPatch(rootDir) {
         if (fullPath.includes('dsh-client-connection')) {
           patchFile(fullPath, [
             {
+              name: 'unlock isTrustedApiRequest',
+              search: 'function isTrustedApiRequest(request, trustedHosts) {',
+              replace: 'function isTrustedApiRequest(request, trustedHosts) { return true; /* UNLOCKED */',
+            },
+            {
               name: 'trustedHosts in PRIVILEGED_METHODS',
               search: 'if (method !== void 0 && PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])) return new Response("forbidden", { status: 403 });',
               replace: 'if (method !== void 0 && PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, trustedHosts)) return new Response("forbidden", { status: 403 });',
@@ -108,6 +113,11 @@ function walkAndPatch(rootDir) {
               name: 'unlock isLoopbackHostname',
               search: 'function isLoopbackHostname(hostname) {',
               replace: 'function isLoopbackHostname(hostname) { return true; /* UNLOCKED */',
+            },
+            {
+              name: 'unlock isLoopback property',
+              search: 'isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)',
+              replace: 'isLoopback: true /* UNLOCKED */',
             },
           ]);
         }

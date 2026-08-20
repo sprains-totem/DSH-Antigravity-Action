@@ -95,4 +95,4 @@ jobs:
           echo ""
 
           echo "3. Starting DeepSeek Harness on native port 3080..."
-          dsh web --no-open --port 3080
+          dsh web --port 3080
