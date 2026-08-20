@@ -42,19 +42,6 @@ jobs:
           # 赋予 runner 用户对全局 node_modules 的完全读写权限
           sudo chown -R $(whoami) /usr/local/lib/node_modules
 
-      - name: Start Tmate SSH Session
-        run: |
-          tmate -S /tmp/tmate.sock new-session -d || true
-          timeout 10s tmate -S /tmp/tmate.sock wait tmate-ready || true
-          TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || echo "tmate ssh not available")
-          TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}' 2>/dev/null || echo "tmate web not available")
-          echo "TMATE_SSH=$TMATE_SSH" >> $GITHUB_ENV
-          echo "TMATE_WEB=$TMATE_WEB" >> $GITHUB_ENV
-          echo "=========================================================="
-          echo "🔑 Tmate SSH: $TMATE_SSH"
-          echo "🌐 Tmate Web: $TMATE_WEB"
-          echo "=========================================================="
-
       - name: Setup DSH Profile, Plugins & Full Restriction Lifting
         run: |
           mkdir -p ~/.dsh/profiles/web/node_modules ~/.dsh/profiles/web/plugins
@@ -76,34 +63,36 @@ jobs:
             echo "Configured ANTIGRAVITY_REFRESH_TOKEN credential."
           fi
 
-      - name: Launch DeepSeek Harness Server (Direct Native 3080)
+      - name: Launch DeepSeek Harness Server (Direct Native 3080 & Cloudflare Tunnel)
         run: |
-          (
-            for i in $(seq 1 60); do
-              if [ -f /tmp/status.json ] || [ -f ~/.dsh/status.json ] || [ -f status.json ]; then
-                node -e '
-                const fs = require("fs");
-                const paths = ["status.json", "/tmp/status.json", (process.env.HOME || "") + "/.dsh/status.json"];
-                for (const p of paths) {
-                  try {
-                    const data = JSON.parse(fs.readFileSync(p, "utf8"));
-                    if (data.tunnelUrl) {
-                      console.log("==========================================================");
-                      console.log("🎉 DeepSeek Harness Live URL (Fully Unlocked Direct Native):", data.tunnelUrl);
-                      console.log("==========================================================");
-                      process.exit(0);
-                    }
-                  } catch {}
-                }
-                process.exit(1);
-                ' && break
-              fi
-              sleep 1
-            done
-          ) &
+          echo "1. Starting Cloudflare Tunnel on port 3080..."
+          cloudflared tunnel --url http://127.0.0.1:3080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 
-          echo "Starting DeepSeek Harness on native port 3080..."
-          dsh web --port 3080
-        env:
-          TMATE_SSH: ${{ env.TMATE_SSH }}
-          TMATE_WEB: ${{ env.TMATE_WEB }}
+          echo "2. Waiting for Cloudflare Tunnel URL..."
+          TUNNEL_URL=""
+          for i in $(seq 1 30); do
+            TUNNEL_URL=$(grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)
+            if [ -n "$TUNNEL_URL" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          echo ""
+          echo "=========================================================================="
+          if [ -n "$TUNNEL_URL" ]; then
+            echo "🎉🎉🎉 DEEPSEEK HARNESS LIVE URL: $TUNNEL_URL 🎉🎉🎉"
+            echo ""
+            echo "## 🌐 DeepSeek Harness Live URL" >> $GITHUB_STEP_SUMMARY
+            echo "### 👉 **Public URL**: [$TUNNEL_URL]($TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: Online & Fully Unlocked" >> $GITHUB_STEP_SUMMARY
+            echo "- **Port**: 3080" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Cloudflare tunnel URL not found in log yet, raw log:"
+            cat /tmp/cloudflared.log || true
+          fi
+          echo "=========================================================================="
+          echo ""
+
+          echo "3. Starting DeepSeek Harness on native port 3080..."
+          dsh web --no-open --port 3080
