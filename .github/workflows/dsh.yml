@@ -44,13 +44,54 @@ jobs:
 
       - name: Setup DSH Profile, Plugins & Full Restriction Lifting
         run: |
-          mkdir -p ~/.dsh/profiles/web/node_modules ~/.dsh/profiles/web/plugins
-          cp -r plugins/* ~/.dsh/profiles/web/node_modules/
-          cp -r plugins/* ~/.dsh/profiles/web/plugins/
-          sudo cp -r plugins/* /usr/local/lib/node_modules/ || true
-          cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
+          mkdir -p ~/.dsh/profiles/web/node_modules ~/.dsh/profiles/node_modules ~/.dsh/node_modules
+          mkdir -p ~/.dsh/profiles/web/node_modules/@deepseek-ai ~/.dsh/profiles/node_modules/@deepseek-ai ~/.dsh/node_modules/@deepseek-ai
 
-          # 执行全局深度解禁（解除全部来源限制、特权方法限制、前端 persistence 限制与模型设置界面）
+          # 复制并链接所有 @deepseek-ai 内部包，确保 ESM 依赖树完全解析
+          if [ -d /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai ]; then
+            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* ~/.dsh/profiles/web/node_modules/@deepseek-ai/ || true
+            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* ~/.dsh/profiles/node_modules/@deepseek-ai/ || true
+            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* /usr/local/lib/node_modules/@deepseek-ai/ || true
+          fi
+          if [ -d /usr/local/lib/node_modules/@deepseek-ai ]; then
+            cp -r /usr/local/lib/node_modules/@deepseek-ai/* ~/.dsh/profiles/web/node_modules/@deepseek-ai/ || true
+            cp -r /usr/local/lib/node_modules/@deepseek-ai/* ~/.dsh/profiles/node_modules/@deepseek-ai/ || true
+          fi
+
+          # 部署全部 Antigravity 插件
+          cp -r plugins/* ~/.dsh/profiles/web/node_modules/
+          cp -r plugins/* ~/.dsh/profiles/node_modules/
+          cp -r plugins/* ~/.dsh/node_modules/
+          sudo cp -r plugins/* /usr/local/lib/node_modules/ || true
+          sudo cp -r plugins/* /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/ || true
+
+          # 写入 web profile 的 package.json 与 cordis.patch.yml
+          cat <<'EOF' > ~/.dsh/profiles/web/package.json
+          {
+            "name": "dsh-profile-web",
+            "private": true,
+            "dependencies": {
+              "dsh-llm-antigravity": "*",
+              "dsh-web-search-antigravity": "*",
+              "dsh-web-search-selector": "*",
+              "dsh-image-gen-antigravity": "*",
+              "dsh-cloudflare-tunnel": "*"
+            },
+            "dsh": {
+              "profile": {
+                "bundles": [
+                  "@deepseek-ai/dsh-base",
+                  "@deepseek-ai/dsh-web-app"
+                ]
+              }
+            }
+          }
+          EOF
+
+          cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
+          cp cordis.patch.yml ~/.dsh/cordis.patch.yml
+
+          # 执行全局深度解禁
           node unlock-dsh.mjs
 
           REFRESH_TOKEN="${{ inputs.refresh_token || secrets.ANTIGRAVITY_REFRESH_TOKEN }}"

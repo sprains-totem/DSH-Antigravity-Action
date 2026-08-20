@@ -22,8 +22,10 @@ function findNodeModulesDirs() {
   const dirs = [];
   const home = process.env.DSH_HOME || path.join(homedir(), '.dsh');
 
-  // 1. ~/.dsh/profiles/web/node_modules
+  // 1. ~/.dsh/profiles/web/node_modules, profiles/node_modules, and .dsh/node_modules
   dirs.push(path.join(home, 'profiles', 'web', 'node_modules'));
+  dirs.push(path.join(home, 'profiles', 'node_modules'));
+  dirs.push(path.join(home, 'node_modules'));
 
   // 2. Windows npx cache
   if (process.env.LOCALAPPDATA) {
