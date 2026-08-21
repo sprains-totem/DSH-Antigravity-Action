@@ -44,50 +44,13 @@ jobs:
 
       - name: Setup DSH Profile, Plugins & Full Restriction Lifting
         run: |
-          mkdir -p ~/.dsh/profiles/web/node_modules ~/.dsh/profiles/node_modules ~/.dsh/node_modules
-          mkdir -p ~/.dsh/profiles/web/node_modules/@deepseek-ai ~/.dsh/profiles/node_modules/@deepseek-ai ~/.dsh/node_modules/@deepseek-ai
+          mkdir -p ~/.dsh/profiles/web/plugins ~/.dsh/profiles/web/node_modules
 
-          # 复制并链接所有 @deepseek-ai 内部包，确保 ESM 依赖树完全解析
-          if [ -d /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai ]; then
-            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* ~/.dsh/profiles/web/node_modules/@deepseek-ai/ || true
-            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* ~/.dsh/profiles/node_modules/@deepseek-ai/ || true
-            cp -r /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* /usr/local/lib/node_modules/@deepseek-ai/ || true
-          fi
-          if [ -d /usr/local/lib/node_modules/@deepseek-ai ]; then
-            cp -r /usr/local/lib/node_modules/@deepseek-ai/* ~/.dsh/profiles/web/node_modules/@deepseek-ai/ || true
-            cp -r /usr/local/lib/node_modules/@deepseek-ai/* ~/.dsh/profiles/node_modules/@deepseek-ai/ || true
-          fi
-
-          # 部署全部 Antigravity 插件
+          # 部署全部已在本地完整测试验证的 Antigravity 插件套件
+          cp -r plugins/* ~/.dsh/profiles/web/plugins/
           cp -r plugins/* ~/.dsh/profiles/web/node_modules/
-          cp -r plugins/* ~/.dsh/profiles/node_modules/
-          cp -r plugins/* ~/.dsh/node_modules/
-          sudo cp -r plugins/* /usr/local/lib/node_modules/ || true
-          sudo cp -r plugins/* /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/ || true
 
-          # 写入 web profile 的 package.json 与 cordis.patch.yml
-          cat <<'EOF' > ~/.dsh/profiles/web/package.json
-          {
-            "name": "dsh-profile-web",
-            "private": true,
-            "dependencies": {
-              "dsh-llm-antigravity": "*",
-              "dsh-web-search-antigravity": "*",
-              "dsh-web-search-selector": "*",
-              "dsh-image-gen-antigravity": "*",
-              "dsh-cloudflare-tunnel": "*"
-            },
-            "dsh": {
-              "profile": {
-                "bundles": [
-                  "@deepseek-ai/dsh-base",
-                  "@deepseek-ai/dsh-web-app"
-                ]
-              }
-            }
-          }
-          EOF
-
+          # 写入 web profile 的 cordis.patch.yml
           cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
           cp cordis.patch.yml ~/.dsh/cordis.patch.yml
 

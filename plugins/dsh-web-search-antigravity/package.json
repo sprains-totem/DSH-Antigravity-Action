@@ -5,7 +5,8 @@
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": "./lib/index.js"
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "@deepseek-ai/dsh-credentials": "*",

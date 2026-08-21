@@ -151,7 +151,7 @@ function walkAndPatch(rootDir) {
             {
               name: 'curatedFields isAntigravity',
               search: 'const curatedFields = (family) => {',
-              replace: 'const curatedFields = (family) => {\n\t\t\t\tconst isAntigravity = namespace?.ns === "llm-antigravity" || props.provider === "antigravity";',
+              replace: 'const curatedFields = (family) => {\n\t\t\t\tconst isAntigravity = Boolean(namespace?.ns === "llm-antigravity" || props.provider === "antigravity");',
             },
             {
               name: 'keyLabel Refresh Token',
