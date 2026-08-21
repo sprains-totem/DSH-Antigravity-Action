@@ -50,9 +50,9 @@ jobs:
           cp -r plugins/* ~/.dsh/profiles/web/plugins/
           cp -r plugins/* ~/.dsh/profiles/web/node_modules/
 
-          # 写入 web profile 的 cordis.patch.yml
+          # 写入 web profile 的 cordis.patch.yml (切勿重复写入 ~/.dsh/cordis.patch.yml 以免产生 duplicate loader entry id)
           cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
-          cp cordis.patch.yml ~/.dsh/cordis.patch.yml
+          rm -f ~/.dsh/cordis.patch.yml
 
           # 执行全局深度解禁
           node unlock-dsh.mjs
