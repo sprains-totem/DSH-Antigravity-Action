@@ -75,7 +75,7 @@ jobs:
           echo "1. Starting Cloudflare Tunnel on port 3080..."
           cloudflared tunnel --url http://127.0.0.1:3080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 
-          echo "2. Waiting for Cloudflare Tunnel URL..."
+          echo "2. Waiting for Cloudflare Tunnel to be ready..."
           TUNNEL_URL=""
           for i in $(seq 1 30); do
             TUNNEL_URL=$(grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)
@@ -85,19 +85,23 @@ jobs:
             sleep 1
           done
 
+          # 启用 GitHub 官方全局脱敏屏蔽，防止日志意外泄露
+          if [ -n "$TUNNEL_URL" ]; then
+            echo "::add-mask::$TUNNEL_URL"
+          fi
+
           echo ""
           echo "=========================================================================="
           if [ -n "$TUNNEL_URL" ]; then
-            echo "🎉🎉🎉 DEEPSEEK HARNESS LIVE URL: $TUNNEL_URL 🎉🎉🎉"
+            echo "✅ Cloudflare Tunnel is established and secured."
             echo ""
-            echo "## 🌐 DeepSeek Harness Live URL" >> $GITHUB_STEP_SUMMARY
-            echo "### 👉 **Public URL**: [$TUNNEL_URL]($TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Status**: Online & Fully Unlocked" >> $GITHUB_STEP_SUMMARY
+            echo "## 🌐 DeepSeek Harness Router" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: Online & Secured" >> $GITHUB_STEP_SUMMARY
             echo "- **Port**: 3080" >> $GITHUB_STEP_SUMMARY
 
-            # 自动同步到 Cloudflare Worker 动态路由
+            # 自动静默同步到 Cloudflare Worker 动态路由
             if [ -n "$CF_WORKER_URL" ] && [ -n "$CF_WORKER_TOKEN" ]; then
-              echo "3. Syncing tunnel URL to Cloudflare Worker router..."
+              echo "3. Syncing tunnel to Cloudflare Worker router..."
               SYNC_RES=$(curl -s -w "\n%{http_code}" -X POST "${CF_WORKER_URL%/}/update" \
                 -H "Authorization: Bearer $CF_WORKER_TOKEN" \
                 -H "Content-Type: application/json" \
@@ -105,15 +109,14 @@ jobs:
               HTTP_CODE=$(echo "$SYNC_RES" | tail -n 1)
               BODY=$(echo "$SYNC_RES" | head -n -1)
               if [ "$HTTP_CODE" -eq 200 ]; then
-                echo "✅ Successfully synced tunnel URL to Cloudflare Worker: $CF_WORKER_URL"
-                echo "### 🚀 **Fixed Router URL**: [$CF_WORKER_URL]($CF_WORKER_URL)" >> $GITHUB_STEP_SUMMARY
+                echo "✅ Successfully synced to Cloudflare Worker Router."
+                echo "### 🚀 **Fixed Portal URL**: [$CF_WORKER_URL]($CF_WORKER_URL)" >> $GITHUB_STEP_SUMMARY
               else
                 echo "⚠️ Failed to sync to Cloudflare Worker (HTTP $HTTP_CODE): $BODY"
               fi
             fi
           else
-            echo "⚠️ Cloudflare tunnel URL not found in log yet, raw log:"
-            cat /tmp/cloudflared.log || true
+            echo "⚠️ Cloudflare tunnel startup timed out."
           fi
           echo "=========================================================================="
           echo ""
