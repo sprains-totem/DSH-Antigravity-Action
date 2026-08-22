@@ -68,6 +68,9 @@ jobs:
           fi
 
       - name: Launch DeepSeek Harness Server (Direct Native 3080 & Cloudflare Tunnel)
+        env:
+          CF_WORKER_URL: ${{ secrets.CF_WORKER_URL }}
+          CF_WORKER_TOKEN: ${{ secrets.CF_WORKER_TOKEN || secrets.CLOUDFLARE_WORKER_API }}
         run: |
           echo "1. Starting Cloudflare Tunnel on port 3080..."
           cloudflared tunnel --url http://127.0.0.1:3080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
@@ -91,6 +94,23 @@ jobs:
             echo "### 👉 **Public URL**: [$TUNNEL_URL]($TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
             echo "- **Status**: Online & Fully Unlocked" >> $GITHUB_STEP_SUMMARY
             echo "- **Port**: 3080" >> $GITHUB_STEP_SUMMARY
+
+            # 自动同步到 Cloudflare Worker 动态路由
+            if [ -n "$CF_WORKER_URL" ] && [ -n "$CF_WORKER_TOKEN" ]; then
+              echo "3. Syncing tunnel URL to Cloudflare Worker router..."
+              SYNC_RES=$(curl -s -w "\n%{http_code}" -X POST "${CF_WORKER_URL%/}/update" \
+                -H "Authorization: Bearer $CF_WORKER_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"url\": \"$TUNNEL_URL\", \"port\": 3080}")
+              HTTP_CODE=$(echo "$SYNC_RES" | tail -n 1)
+              BODY=$(echo "$SYNC_RES" | head -n -1)
+              if [ "$HTTP_CODE" -eq 200 ]; then
+                echo "✅ Successfully synced tunnel URL to Cloudflare Worker: $CF_WORKER_URL"
+                echo "### 🚀 **Fixed Router URL**: [$CF_WORKER_URL]($CF_WORKER_URL)" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "⚠️ Failed to sync to Cloudflare Worker (HTTP $HTTP_CODE): $BODY"
+              fi
+            fi
           else
             echo "⚠️ Cloudflare tunnel URL not found in log yet, raw log:"
             cat /tmp/cloudflared.log || true
@@ -98,5 +118,5 @@ jobs:
           echo "=========================================================================="
           echo ""
 
-          echo "3. Starting DeepSeek Harness on native port 3080..."
+          echo "4. Starting DeepSeek Harness on native port 3080..."
           dsh web --port 3080
