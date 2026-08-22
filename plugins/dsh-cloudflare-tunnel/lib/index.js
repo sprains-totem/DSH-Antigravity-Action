@@ -196,8 +196,7 @@ export class CloudflareTunnelManager {
 
             if (process.env.GITHUB_STEP_SUMMARY) {
               try {
-                const summaryUrl = workerUrl || this.url;
-                const summaryText = `\n## 🌐 DeepSeek Harness Live\n- **Router URL**: [${summaryUrl}](${summaryUrl})\n- **Port**: ${port}\n- **Status**: Online & Secured\n`;
+                const summaryText = `\n## 🌐 DeepSeek Harness Status\n- **Port**: ${port}\n- **Status**: Online & Secured\n`;
                 writeFileSync(process.env.GITHUB_STEP_SUMMARY, summaryText, { flag: 'a' });
               } catch {}
             }
