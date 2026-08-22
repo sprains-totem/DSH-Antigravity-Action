@@ -10,8 +10,8 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const visitPassword = env.VISIT_PASSWORD || "admin888";
-    const authToken = env.AUTH_TOKEN || "dsh-secret-token";
+    const visitPassword = (env.VISIT_PASSWORD || env.AUTH_TOKEN || "admin888").trim();
+    const authToken = (env.AUTH_TOKEN || env.VISIT_PASSWORD || "dsh-secret-token").trim();
 
     // ----------------------------------------------------
     // 1. Action 上报接口: POST /update (使用 AUTH_TOKEN 校验)
@@ -69,9 +69,9 @@ export default {
     // ----------------------------------------------------
     if (request.method === "POST" && url.pathname === "/login") {
       const formData = await request.formData();
-      const pwd = formData.get("password");
+      const pwd = (formData.get("password") || "").trim();
 
-      if (pwd === visitPassword) {
+      if (pwd === visitPassword || pwd === authToken) {
         const tokenHash = await sha256(visitPassword);
         
         let targetUrl = "/";
