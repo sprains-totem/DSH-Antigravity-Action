@@ -207,8 +207,8 @@ function walkAndPatch(rootDir) {
           patchFile(fullPath, [
             {
               name: 'bypass assertOwnerOnly permission strict check',
-              search: 'if ((mode & GROUP_OTHER_BITS) !== 0) {',
-              replace: 'if (false && (mode & GROUP_OTHER_BITS) !== 0) {',
+              search: 'async function assertOwnerOnly(filename) {',
+              replace: 'async function assertOwnerOnly(filename) { return; /* UNLOCKED */',
             }
           ]);
         }
