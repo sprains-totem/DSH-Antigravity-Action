@@ -144,29 +144,34 @@ function walkAndPatch(rootDir) {
               replace: 'if (ns === "llm-deepseek" || ns === "llm-antigravity") return "deepseek";',
             },
             {
-              name: 'antigravity provider refreshTokenEnv',
-              search: 'if (provider === "deepseek") return "DEEPSEEK_API_KEY";',
-              replace: 'if (provider === "deepseek") return "DEEPSEEK_API_KEY";\n\t\t\t\tif (provider === "antigravity") return "ANTIGRAVITY_REFRESH_TOKEN";',
+              name: 'deriveKeyRef antigravity',
+              search: 'function deriveKeyRef(provider) {\n\t\t\treturn `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;\n\t\t}',
+              replace: 'function deriveKeyRef(provider) {\n\t\t\tif (provider === "antigravity") return "ANTIGRAVITY_REFRESH_TOKEN";\n\t\t\treturn `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;\n\t\t}',
+            },
+            {
+              name: 'apiKeyEnvOf refreshTokenEnv support',
+              search: 'function apiKeyEnvOf(namespace, path, schema) {\n\t\t\tif (namespace === void 0) return void 0;\n\t\t\tconst profile = schema.getPath(namespace.value, path);\n\t\t\tif (typeof profile !== "object" || profile === null) return void 0;\n\t\t\tconst ref = profile.apiKeyEnv;\n\t\t\treturn typeof ref === "string" && ref.length > 0 ? ref : void 0;\n\t\t}',
+              replace: 'function apiKeyEnvOf(namespace, path, schema) {\n\t\t\tif (namespace === void 0) return void 0;\n\t\t\tif (namespace.ns === "llm-antigravity") return "ANTIGRAVITY_REFRESH_TOKEN";\n\t\t\tconst profile = schema.getPath(namespace.value, path);\n\t\t\tif (typeof profile !== "object" || profile === null) return void 0;\n\t\t\tconst ref = profile.apiKeyEnv ?? profile.refreshTokenEnv;\n\t\t\treturn typeof ref === "string" && ref.length > 0 ? ref : void 0;\n\t\t}',
+            },
+            {
+              name: 'refFor refreshTokenEnv support',
+              search: 'function refFor(schema, namespace, path, provider) {\n\t\t\tconst profile = schema.getPath(namespace.value, path);\n\t\t\tconst named = typeof profile === "object" && profile !== null ? profile.apiKeyEnv : void 0;\n\t\t\treturn typeof named === "string" && named.length > 0 ? named : deriveKeyRef(provider);\n\t\t}',
+              replace: 'function refFor(schema, namespace, path, provider) {\n\t\t\tif (provider === "antigravity" || namespace?.ns === "llm-antigravity") return "ANTIGRAVITY_REFRESH_TOKEN";\n\t\t\tconst profile = schema.getPath(namespace.value, path);\n\t\t\tconst named = typeof profile === "object" && profile !== null ? (profile.apiKeyEnv ?? profile.refreshTokenEnv) : void 0;\n\t\t\treturn typeof named === "string" && named.length > 0 ? named : deriveKeyRef(provider);\n\t\t}',
             },
             {
               name: 'curatedFields isAntigravity',
-              search: 'const curatedFields = (family) => {',
-              replace: 'const curatedFields = (family) => {\n\t\t\t\tconst isAntigravity = Boolean(namespace?.ns === "llm-antigravity" || props.provider === "antigravity");',
-            },
-            {
-              name: 'keyLabel Refresh Token',
-              search: 'const keyLabel = t("keyInput");',
-              replace: 'const keyLabel = isAntigravity ? "Refresh Token" : t("keyInput");',
+              search: 'const curatedFields = (family) => {\n\t\t\t\tconst ownsIdentity = family === "pi-ai" && props.declared === true;',
+              replace: 'const curatedFields = (family) => {\n\t\t\t\tconst isAntigravity = Boolean(namespace?.ns === "llm-antigravity" || props.provider === "antigravity");\n\t\t\t\tconst ownsIdentity = family === "pi-ai" && props.declared === true;',
             },
             {
               name: 'keyPlaceholder Refresh Token',
-              search: 'const keyPlaceholder = keyLocked ? t("keyEnvLocked") : keyState?.configured === true && props.credentialRequired !== true ? t("keyStored") : (family === "pi-ai" ? t("keyPlaceholderNative") : t("keyPlaceholder"));',
-              replace: 'const keyPlaceholder = keyLocked ? t("keyEnvLocked") : keyState?.configured === true && props.credentialRequired !== true ? (isAntigravity ? "Refresh Token 已配置 (留空保持不变)" : t("keyStored")) : (isAntigravity ? "OAuth 2.0 Refresh Token" : (family === "pi-ai" ? t("keyPlaceholderNative") : t("keyPlaceholder")));',
+              search: 'const keyPlaceholder = keyLocked ? t("keyEnvLocked") : keyState?.configured === true && props.credentialRequired !== true ? t("keyStored") : family === "pi-ai" ? t("keyPlaceholderNative") : t("keyPlaceholder");',
+              replace: 'const keyPlaceholder = keyLocked ? t("keyEnvLocked") : keyState?.configured === true && props.credentialRequired !== true ? (isAntigravity ? "Refresh Token 已配置（留空保持不变）" : t("keyStored")) : (isAntigravity ? "请输入 OAuth 2.0 Refresh Token" : (family === "pi-ai" ? t("keyPlaceholderNative") : t("keyPlaceholder")));',
             },
             {
-              name: 'welcomeController host',
-              search: 'new WelcomeNoticeStore(connection.api, connection.isLoopback ? "host" : "remote")',
-              replace: 'new WelcomeNoticeStore(connection.api, "host" /* UNLOCKED */)',
+              name: 'keyLabel Refresh Token',
+              search: 'children: t("keyInput")\n\t\t\t\t\t\t}),\n\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("input", {\n\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["input"],\n\t\t\t\t\t\t\ttype: "password",\n\t\t\t\t\t\t\tautoComplete: "off",\n\t\t\t\t\t\t\tvalue: keyDraft,\n\t\t\t\t\t\t\tplaceholder: keyPlaceholder,\n\t\t\t\t\t\t\t"aria-label": t("keyInput"),',
+              replace: 'children: isAntigravity ? "Refresh Token" : t("keyInput")\n\t\t\t\t\t\t}),\n\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("input", {\n\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["input"],\n\t\t\t\t\t\t\ttype: "password",\n\t\t\t\t\t\t\tautoComplete: "off",\n\t\t\t\t\t\t\tvalue: keyDraft,\n\t\t\t\t\t\t\tplaceholder: keyPlaceholder,\n\t\t\t\t\t\t\t"aria-label": isAntigravity ? "Refresh Token" : t("keyInput"),',
             }
           ]);
         }
