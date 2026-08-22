@@ -176,7 +176,7 @@ export class CloudflareTunnelManager {
               this.hostname = new URL(this.url).hostname;
             } catch {}
             this.status = 'running';
-            this.ctx.logger?.info?.(`[cloudflare-tunnel] Public Tunnel URL established: ${this.url}`);
+            this.ctx.logger?.info?.(`[cloudflare-tunnel] Public Cloudflare Tunnel established securely.`);
 
             try {
               const statusData = {
@@ -191,16 +191,18 @@ export class CloudflareTunnelManager {
               writeFileSync(homeStatus, JSON.stringify(statusData, null, 2), 'utf8');
             } catch {}
 
+            const workerUrl = process.env.CF_WORKER_URL;
+            const workerToken = process.env.CF_WORKER_TOKEN || process.env.CLOUDFLARE_WORKER_API;
+
             if (process.env.GITHUB_STEP_SUMMARY) {
               try {
-                const summaryText = `\n## 🌐 DeepSeek Harness Live (Cloudflare Tunnel)\n- **Public URL**: [${this.url}](${this.url})\n- **Port**: ${port}\n`;
+                const summaryUrl = workerUrl || this.url;
+                const summaryText = `\n## 🌐 DeepSeek Harness Live\n- **Router URL**: [${summaryUrl}](${summaryUrl})\n- **Port**: ${port}\n- **Status**: Online & Secured\n`;
                 writeFileSync(process.env.GITHUB_STEP_SUMMARY, summaryText, { flag: 'a' });
               } catch {}
             }
 
             // 自动同步到 Cloudflare Worker 动态路由 (如果配置了环境变量)
-            const workerUrl = process.env.CF_WORKER_URL;
-            const workerToken = process.env.CF_WORKER_TOKEN || process.env.CLOUDFLARE_WORKER_API;
             if (workerUrl && workerToken) {
               fetch(`${workerUrl.replace(/\/$/, '')}/update`, {
                 method: 'POST',
@@ -211,7 +213,7 @@ export class CloudflareTunnelManager {
                 body: JSON.stringify({ url: this.url, port })
               }).then((res) => {
                 if (res.ok) {
-                  this.ctx.logger?.info?.(`[cloudflare-tunnel] Successfully synced tunnel URL to Cloudflare Worker: ${workerUrl}`);
+                  this.ctx.logger?.info?.(`[cloudflare-tunnel] Successfully synced tunnel to Cloudflare Worker router.`);
                 } else {
                   this.ctx.logger?.warn?.(`[cloudflare-tunnel] Cloudflare Worker sync returned HTTP ${res.status}`);
                 }
