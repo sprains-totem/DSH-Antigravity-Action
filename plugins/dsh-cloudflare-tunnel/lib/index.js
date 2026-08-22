@@ -198,6 +198,28 @@ export class CloudflareTunnelManager {
               } catch {}
             }
 
+            // 自动同步到 Cloudflare Worker 动态路由 (如果配置了环境变量)
+            const workerUrl = process.env.CF_WORKER_URL;
+            const workerToken = process.env.CF_WORKER_TOKEN || process.env.CLOUDFLARE_WORKER_API;
+            if (workerUrl && workerToken) {
+              fetch(`${workerUrl.replace(/\/$/, '')}/update`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${workerToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url: this.url, port })
+              }).then((res) => {
+                if (res.ok) {
+                  this.ctx.logger?.info?.(`[cloudflare-tunnel] Successfully synced tunnel URL to Cloudflare Worker: ${workerUrl}`);
+                } else {
+                  this.ctx.logger?.warn?.(`[cloudflare-tunnel] Cloudflare Worker sync returned HTTP ${res.status}`);
+                }
+              }).catch((err) => {
+                this.ctx.logger?.warn?.(`[cloudflare-tunnel] Failed to sync to Cloudflare Worker: ${err.message}`);
+              });
+            }
+
             this.ctx.emit('cloudflare-tunnel/ready', { url: this.url, hostname: this.hostname });
 
             if (!resolved) {
