@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import {
   CallId,
@@ -107,6 +109,320 @@ const Config = z.object({
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   retryPolicy: RetryPolicySchema,
 })
+
+// ---------------------------------------------------------------------------
+// Usage tracking and persistence
+// ---------------------------------------------------------------------------
+const dshUsageDir = process.env.USERPROFILE
+  ? path.join(process.env.USERPROFILE, '.dsh')
+  : process.cwd()
+const USAGE_FILE = path.join(dshUsageDir, 'antigravity_usage.json')
+
+class UsageTracker {
+  constructor() {
+    this.stats = this.load()
+    this.saveTimer = null
+  }
+
+  load() {
+    try {
+      if (fs.existsSync(USAGE_FILE)) {
+        const raw = fs.readFileSync(USAGE_FILE, 'utf8')
+        const data = JSON.parse(raw)
+        return {
+          summary: {
+            totalRequests: data.summary?.totalRequests || 0,
+            totalInputTokens: data.summary?.totalInputTokens || 0,
+            totalOutputTokens: data.summary?.totalOutputTokens || 0,
+            totalCacheReadTokens: data.summary?.totalCacheReadTokens || 0,
+            totalReasoningTokens: data.summary?.totalReasoningTokens || 0,
+            firstUsed: data.summary?.firstUsed || null,
+            lastUsed: data.summary?.lastUsed || null,
+          },
+          byModel: data.byModel || {},
+          daily: data.daily || {},
+          recent: Array.isArray(data.recent) ? data.recent : [],
+        }
+      }
+    } catch {}
+    return {
+      summary: {
+        totalRequests: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheReadTokens: 0,
+        totalReasoningTokens: 0,
+        firstUsed: null,
+        lastUsed: null,
+      },
+      byModel: {},
+      daily: {},
+      recent: [],
+    }
+  }
+
+  scheduleSave() {
+    if (this.saveTimer) return
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      try {
+        fs.mkdirSync(dshUsageDir, { recursive: true })
+        fs.writeFileSync(USAGE_FILE, JSON.stringify(this.stats, null, 2), 'utf8')
+      } catch {}
+    }, 500)
+  }
+
+  record(item) {
+    const {
+      timestamp = new Date().toISOString(),
+      model = 'unknown',
+      inputTokens = 0,
+      outputTokens = 0,
+      cacheReadTokens = 0,
+      reasoningTokens = 0,
+      durationMs = 0,
+      sessionId,
+    } = item
+
+    const totalTokens = inputTokens + outputTokens + reasoningTokens
+    const promptGross = inputTokens + cacheReadTokens
+    const cacheSavingsRatio = promptGross > 0 ? Math.round((cacheReadTokens / promptGross) * 1000) / 10 : 0
+
+    // Summary
+    this.stats.summary.totalRequests++
+    this.stats.summary.totalInputTokens += inputTokens
+    this.stats.summary.totalOutputTokens += outputTokens
+    this.stats.summary.totalCacheReadTokens += cacheReadTokens
+    this.stats.summary.totalReasoningTokens += reasoningTokens
+    if (!this.stats.summary.firstUsed) this.stats.summary.firstUsed = timestamp
+    this.stats.summary.lastUsed = timestamp
+
+    // By Model
+    if (!this.stats.byModel[model]) {
+      this.stats.byModel[model] = {
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+      }
+    }
+    const m = this.stats.byModel[model]
+    m.requests++
+    m.inputTokens += inputTokens
+    m.outputTokens += outputTokens
+    m.cacheReadTokens += cacheReadTokens
+    m.reasoningTokens += reasoningTokens
+    m.totalTokens += totalTokens
+
+    // Daily
+    const day = timestamp.slice(0, 10)
+    if (!this.stats.daily[day]) {
+      this.stats.daily[day] = {
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+      }
+    }
+    const d = this.stats.daily[day]
+    d.requests++
+    d.inputTokens += inputTokens
+    d.outputTokens += outputTokens
+    d.cacheReadTokens += cacheReadTokens
+    d.reasoningTokens += reasoningTokens
+    d.totalTokens += totalTokens
+
+    // Recent list (keep latest 50)
+    this.stats.recent.unshift({
+      timestamp,
+      model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      reasoningTokens,
+      totalTokens,
+      cacheSavingsRatio,
+      durationMs,
+      sessionId: sessionId ? String(sessionId) : undefined,
+    })
+    if (this.stats.recent.length > 50) {
+      this.stats.recent = this.stats.recent.slice(0, 50)
+    }
+
+    this.scheduleSave()
+  }
+
+  getStats() {
+    const grossPrompt = this.stats.summary.totalInputTokens + this.stats.summary.totalCacheReadTokens
+    const cacheSavingsRate = grossPrompt > 0
+      ? `${(Math.round((this.stats.summary.totalCacheReadTokens / grossPrompt) * 1000) / 10).toFixed(1)}%`
+      : '0.0%'
+    const totalTokens = this.stats.summary.totalInputTokens + this.stats.summary.totalOutputTokens + this.stats.summary.totalReasoningTokens
+
+    return {
+      summary: {
+        ...this.stats.summary,
+        totalTokens,
+        grossPromptTokens: grossPrompt,
+        cacheSavingsRate,
+      },
+      byModel: this.stats.byModel,
+      daily: this.stats.daily,
+      recent: this.stats.recent,
+    }
+  }
+
+  reset() {
+    this.stats = {
+      summary: {
+        totalRequests: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheReadTokens: 0,
+        totalReasoningTokens: 0,
+        firstUsed: null,
+        lastUsed: null,
+      },
+      byModel: {},
+      daily: {},
+      recent: [],
+    }
+    try {
+      fs.mkdirSync(dshUsageDir, { recursive: true })
+      fs.writeFileSync(USAGE_FILE, JSON.stringify(this.stats, null, 2), 'utf8')
+    } catch {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quota querying service
+// ---------------------------------------------------------------------------
+class QuotaService {
+  constructor() {
+    this.cache = null
+    this.cacheExpiresAt = 0
+    this.fetchPromise = null
+  }
+
+  async getQuota(accessToken, baseURL, project, force = false) {
+    const now = Date.now()
+    if (!force && this.cache && now < this.cacheExpiresAt) {
+      return this.cache
+    }
+    if (this.fetchPromise) return this.fetchPromise
+
+    this.fetchPromise = (async () => {
+      try {
+        const headers = {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+          ...attributionHeaders(),
+          'user-agent': OFFICIAL_USER_AGENT,
+        }
+
+        // 1. retrieveUserQuotaSummary
+        let quotaData = null
+        try {
+          const quotaRes = await fetch(`${baseURL}:retrieveUserQuotaSummary`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ project: project || 'default' }),
+          })
+          if (quotaRes.ok) quotaData = await quotaRes.json()
+        } catch {}
+
+        // 2. fetchAvailableModels
+        let modelsData = null
+        try {
+          const modelsRes = await fetch(`${baseURL}:fetchAvailableModels`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ project: project || 'default' }),
+          })
+          if (modelsRes.ok) modelsData = await modelsRes.json()
+        } catch {}
+
+        // 3. loadCodeAssist
+        let lcaData = null
+        try {
+          const lcaRes = await fetch(`${baseURL}:loadCodeAssist`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
+          })
+          if (lcaRes.ok) lcaData = await lcaRes.json()
+        } catch {}
+
+        const groups = (quotaData?.groups || []).map((g) => ({
+          displayName: g.displayName || 'Model Quota Group',
+          description: g.description || '',
+          buckets: (g.buckets || []).map((b) => {
+            const fraction = typeof b.remainingFraction === 'number' ? b.remainingFraction : 1.0
+            const percent = Math.round(fraction * 1000) / 10
+            let resetInSeconds = 0
+            if (b.resetTime) {
+              const resetMs = new Date(b.resetTime).getTime()
+              if (!isNaN(resetMs)) {
+                resetInSeconds = Math.max(0, Math.round((resetMs - Date.now()) / 1000))
+              }
+            }
+            return {
+              bucketId: b.bucketId || 'default',
+              displayName: b.displayName || b.bucketId || 'Quota Window',
+              window: b.window || (b.bucketId?.includes('5h') ? '5h' : 'weekly'),
+              resetTime: b.resetTime,
+              resetInSeconds,
+              description: b.description || '',
+              remainingFraction: fraction,
+              remainingPercent: percent,
+            }
+          }),
+        }))
+
+        const models = Object.entries(modelsData?.models || {})
+          .map(([id, m]) => {
+            const fraction = m.quotaInfo?.remainingFraction
+            return {
+              id,
+              displayName: m.displayName || id,
+              remainingFraction: fraction,
+              remainingPercent: typeof fraction === 'number' ? Math.round(fraction * 1000) / 10 : undefined,
+              resetTime: m.quotaInfo?.resetTime,
+            }
+          })
+          .filter((m) => m.remainingFraction !== undefined)
+
+        const result = {
+          ok: true,
+          tier: {
+            id: lcaData?.currentTier?.id || 'free-tier',
+            name: lcaData?.currentTier?.name || 'Antigravity',
+            description: lcaData?.currentTier?.description || '',
+            paidTier: lcaData?.paidTier?.name || lcaData?.paidTier?.id || 'Google AI Pro',
+            project: project || lcaData?.cloudaicompanionProject || 'default',
+            upgradeSubscriptionUri: lcaData?.currentTier?.upgradeSubscriptionUri || lcaData?.upgradeSubscriptionUri,
+          },
+          groups,
+          models,
+          quotaDescription: quotaData?.description,
+          updatedAt: new Date().toISOString(),
+        }
+
+        this.cache = result
+        this.cacheExpiresAt = Date.now() + 15_000 // 15s cache
+        return result
+      } finally {
+        this.fetchPromise = null
+      }
+    })()
+
+    return this.fetchPromise
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Serialization: harness messages -> Gemini contents + v1internal envelope.
@@ -467,7 +783,7 @@ function closeBlock(block) {
  * tool calls are emitted whole when the part arrives. usage + finish are deferred
  * to the stream end (or `[DONE]`) so no chunk follows `finish`.
  */
-async function* translate(payloads, sessionId) {
+async function* translate(payloads, sessionId, onUsage) {
   let nextIndex = 0
   let textBlock
   let reasoningBlock
@@ -549,7 +865,12 @@ async function* translate(payloads, sessionId) {
   }
 
   for (const block of order) yield { type: 'block-end', index: block.index, block: closeBlock(block) }
-  if (pendingUsage !== undefined) yield { type: 'usage', usage: pendingUsage }
+  if (pendingUsage !== undefined) {
+    if (typeof onUsage === 'function') {
+      try { onUsage(pendingUsage) } catch {}
+    }
+    yield { type: 'usage', usage: pendingUsage }
+  }
   const reason = pendingFinish ?? { kind: 'stop' }
   yield {
     type: 'finish',
@@ -611,9 +932,10 @@ async function httpError(response, context) {
 // Adapter
 // ---------------------------------------------------------------------------
 class AntigravityAdapter extends LlmAdapter {
-  constructor(config) {
+  constructor(config, usageTracker) {
     super()
     this.config = config
+    this.usageTracker = usageTracker
     this.token = undefined
     this.refreshing = undefined
     this.project = undefined
@@ -716,8 +1038,8 @@ class AntigravityAdapter extends LlmAdapter {
         headers: {
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
-          'user-agent': OFFICIAL_USER_AGENT,
           ...attributionHeaders(),
+          'user-agent': OFFICIAL_USER_AGENT,
         },
         body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
       })
@@ -773,6 +1095,7 @@ class AntigravityAdapter extends LlmAdapter {
   }
 
   async *request(options, signal, connection, accessToken, project) {
+    const startTime = Date.now()
     const attachments = this.config.resolveAttachments?.()
     const body = await serializeRequest(options, project, attachments)
     const payload = JSON.stringify(body)
@@ -818,7 +1141,18 @@ class AntigravityAdapter extends LlmAdapter {
           throw lastError
         }
         if (!response.body) throw new LlmError('antigravity API returned no response body', 'EMPTY_RESPONSE')
-        yield* translate(parseSse(response.body), options.sessionId)
+        yield* translate(parseSse(response.body), options.sessionId, (usage) => {
+          this.usageTracker?.record({
+            timestamp: new Date().toISOString(),
+            model: options.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens || 0,
+            reasoningTokens: usage.reasoningTokens || 0,
+            durationMs: Date.now() - startTime,
+            sessionId: options.sessionId,
+          })
+        })
         return
       }
     }
@@ -933,6 +1267,9 @@ function apply(ctx, config) {
     )
   }
 
+  const usageTracker = new UsageTracker()
+  const quotaService = new QuotaService()
+
   const adapter = new AntigravityAdapter({
     options,
     resolveRefreshToken,
@@ -941,6 +1278,62 @@ function apply(ctx, config) {
     // then image blocks are skipped (text-only fallback), like pi-ai's
     // "requires the durable attachment service" guard.
     resolveAttachments: () => ctx.get('attachments'),
+  }, usageTracker)
+
+  // Register WebServer routes for live quota and usage statistics when available
+  ctx.inject(['webServer'], (httpCtx) => {
+    try {
+      httpCtx.webServer.register({
+        kind: 'prefix',
+        path: '/api/antigravity',
+        handler: async (req, res) => {
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204)
+            res.end()
+            return
+          }
+
+          const url = new URL(req.url ?? '/', 'http://localhost')
+          const pathName = url.pathname.replace(/\/+$/, '')
+
+          if (pathName === '/api/antigravity/usage') {
+            if (req.method === 'DELETE') {
+              usageTracker.reset()
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, message: 'Usage statistics reset' }))
+              return
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats() }))
+            return
+          }
+
+          if (pathName === '/api/antigravity/quota') {
+            try {
+              const connection = options()
+              const accessToken = await adapter.ensureAccessToken()
+              const project = await adapter.ensureProject(accessToken)
+              const force = url.searchParams.get('force') === 'true' || req.method === 'POST'
+              const quota = await quotaService.getQuota(accessToken, connection.baseURL, project, force)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(quota))
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+            }
+            return
+          }
+
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: false, error: 'Endpoint not found' }))
+        },
+      })
+    } catch (e) {
+      ctx.logger?.warn?.('llm-antigravity: webServer registration failed', e)
+    }
   })
   ctx.llm.registerConfigurableProviders([{
     provider: PROVIDER,

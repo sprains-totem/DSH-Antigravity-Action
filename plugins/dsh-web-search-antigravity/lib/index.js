@@ -106,8 +106,8 @@ class AntigravitySearchProvider {
         headers: {
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
-          'user-agent': OFFICIAL_USER_AGENT,
           ...attributionHeaders(),
+          'user-agent': OFFICIAL_USER_AGENT,
         },
         body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
       })
