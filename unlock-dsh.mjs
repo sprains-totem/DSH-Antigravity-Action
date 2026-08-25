@@ -212,6 +212,54 @@ function walkAndPatch(rootDir) {
             }
           ]);
         }
+
+        // Patch dsh-host-apiproxy (allow video/audio/pdf in durablePromptContent)
+        if (fullPath.includes('dsh-host-apiproxy') && fullPath.endsWith('index.js')) {
+          patchFile(fullPath, [
+            {
+              name: 'preserve video/audio/pdf in durablePromptContent',
+              search: 'const refs = await admitEncodedImages(ctx.attachments, content.filter((part) => part.type === "image"));\n\tlet next = 0;\n\treturn content.map((part) => part.type === "text" ? {\n\t\ttype: "text",\n\t\ttext: part.text\n\t} : {\n\t\ttype: "image",\n\t\tattachment: refs[next++]\n\t});',
+              replace: 'const imageParts = content.filter((part) => part.type === "image");\n\tconst refs = imageParts.length > 0 ? await admitEncodedImages(ctx.attachments, imageParts) : [];\n\tlet next = 0;\n\treturn content.map((part) => {\n\t\tif (part.type === "text") return { type: "text", text: part.text };\n\t\tif (part.type === "image") return { type: "image", attachment: refs[next++] };\n\t\treturn { ...part };\n\t});',
+            }
+          ]);
+        }
+
+        // Patch dsh-client-ui-conversation (allow multimodal files in composer)
+        if (fullPath.includes('dsh-client-ui-conversation') && fullPath.endsWith('client.js')) {
+          patchFile(fullPath, [
+            {
+              name: 'expand imageMediaType to multimodal',
+              search: '		function imageMediaType(value) {\n\t\t\tswitch (value) {\n\t\t\t\tcase "image/png":\n\t\t\t\tcase "image/jpeg":\n\t\t\t\tcase "image/webp":\n\t\t\t\tcase "image/gif": return value;\n\t\t\t\tdefault: throw new UnsupportedImageMediaTypeError(value);\n\t\t\t}\n\t\t}',
+              replace: '		function imageMediaType(value, fileName = "") {\n\t\t\tconst ext = (fileName.split(".").pop() || "").toLowerCase();\n\t\t\tswitch (value) {\n\t\t\t\tcase "image/png":\n\t\t\t\tcase "image/jpeg":\n\t\t\t\tcase "image/webp":\n\t\t\t\tcase "image/gif":\n\t\t\t\tcase "image/heic":\n\t\t\t\tcase "image/heif":\n\t\t\t\tcase "video/mp4":\n\t\t\t\tcase "video/webm":\n\t\t\t\tcase "video/quicktime":\n\t\t\t\tcase "video/x-msvideo":\n\t\t\t\tcase "video/ogg":\n\t\t\t\tcase "audio/mp3":\n\t\t\t\tcase "audio/mpeg":\n\t\t\t\tcase "audio/wav":\n\t\t\t\tcase "audio/x-wav":\n\t\t\t\tcase "audio/m4a":\n\t\t\t\tcase "audio/aac":\n\t\t\t\tcase "audio/ogg":\n\t\t\t\tcase "audio/opus":\n\t\t\t\tcase "audio/flac":\n\t\t\t\tcase "application/pdf":\n\t\t\t\tcase "application/x-ipynb+json":\n\t\t\t\tcase "application/rtf":\n\t\t\t\tcase "text/csv": return value;\n\t\t\t\tdefault: {\n\t\t\t\t\tif (["mp4","webm","mov","avi","mkv","ogg","ogv"].includes(ext)) return "video/mp4";\n\t\t\t\t\tif (["mp3","wav","m4a","aac","opus","flac","weba"].includes(ext)) return "audio/mp3";\n\t\t\t\t\tif (ext === "pdf") return "application/pdf";\n\t\t\t\t\tif (ext === "ipynb") return "application/x-ipynb+json";\n\t\t\t\t\tif (ext === "rtf") return "application/rtf";\n\t\t\t\t\tif (ext === "csv") return "text/csv";\n\t\t\t\t\tif (["png","jpg","jpeg","webp","gif","heic","heif"].includes(ext)) return "image/png";\n\t\t\t\t\treturn value || "application/octet-stream";\n\t\t\t\t}\n\t\t\t}\n\t\t}',
+            },
+            {
+              name: 'createDraftImages pass fileName',
+              search: '			createDraftImages(files) {\n\t\t\t\tfor (const file of files) imageMediaType(file.type);',
+              replace: '			createDraftImages(files) {\n\t\t\t\tfor (const file of files) imageMediaType(file.type, file.name);',
+            },
+            {
+              name: 'serializeImages multimodal support',
+              search: '			/** Convert browser files to canonical base64 prompt parts. */\n\t\t\tserializeImages(images) {\n\t\t\t\treturn Promise.all(images.map(async (file) => ({\n\t\t\t\t\ttype: "image",\n\t\t\t\t\t...await this.encodeImage(file)\n\t\t\t\t})));\n\t\t\t}',
+              replace: '			/** Convert browser files to canonical base64 prompt parts (multimodal). */\n\t\t\tserializeImages(images) {\n\t\t\t\treturn Promise.all(images.map(async (file) => {\n\t\t\t\t\tconst mt = imageMediaType(file.type, file.name);\n\t\t\t\t\tlet blockType = "image";\n\t\t\t\t\tif (mt.startsWith("video/")) blockType = "video";\n\t\t\t\t\telse if (mt.startsWith("audio/")) blockType = "audio";\n\t\t\t\t\telse if (mt === "application/pdf" || file.name.endsWith(".pdf")) blockType = "pdf";\n\t\t\t\t\telse if (mt === "application/x-ipynb+json" || file.name.endsWith(".ipynb") || mt === "application/rtf" || mt === "text/csv") blockType = "document";\n\t\t\t\t\tconst buf = new Uint8Array(await file.arrayBuffer());\n\t\t\t\t\treturn {\n\t\t\t\t\t\ttype: blockType,\n\t\t\t\t\t\tmediaType: mt,\n\t\t\t\t\t\tmimeType: mt,\n\t\t\t\t\t\tdata: bytesToBase64(buf),\n\t\t\t\t\t\t...file.name === "" ? {} : { name: file.name }\n\t\t\t\t\t};\n\t\t\t\t}));\n\t\t\t}',
+            },
+            {
+              name: 'intakeImages allow multimodal',
+              search: 'if (files.some((file) => !imageLimits.mediaTypes.includes(file.type))) return addImages(files);',
+              replace: '// Allow all multimodal files\n\t\t\t\t\t\treturn addImages(files);',
+            }
+          ]);
+        }
+
+        // Patch dsh-client-ui-attachment (preview video/audio/pdf)
+        if (fullPath.includes('dsh-client-ui-attachment') && fullPath.endsWith('client.js')) {
+          patchFile(fullPath, [
+            {
+              name: 'render video/audio in attachment rail',
+              search: '								children: (0, react_jsx_runtime.jsx)("img", {\n\t\t\t\t\t\t\t\t\tsrc: item.previewUrl,\n\t\t\t\t\t\t\t\t\talt: item.alt\n\t\t\t\t\t\t\t\t})',
+              replace: '								children: item.attachment.file.type.startsWith("video/") || item.attachment.file.name.match(/\\.(mp4|webm|mov|avi|mkv)$/i) ? (0, react_jsx_runtime.jsx)("video", {\n\t\t\t\t\t\t\t\t\tsrc: item.previewUrl,\n\t\t\t\t\t\t\t\t\tstyle: { width: "100%", height: "100%", objectFit: "cover" },\n\t\t\t\t\t\t\t\t\tmuted: true\n\t\t\t\t\t\t\t\t}) : item.attachment.file.type.startsWith("audio/") || item.attachment.file.name.match(/\\.(mp3|wav|m4a|aac|ogg|flac)$/i) ? (0, react_jsx_runtime.jsxs)("div", {\n\t\t\t\t\t\t\t\t\tstyle: { width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#fef3c7", color: "#b45309", fontSize: 10, padding: 2, textAlign: "center" },\n\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("span", { style: { fontSize: 20 }, children: "🎵" }), (0, react_jsx_runtime.jsx)("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }, children: item.alt })]\n\t\t\t\t\t\t\t\t}) : (item.attachment.file.type === "application/pdf" || item.attachment.file.name.endsWith(".pdf")) ? (0, react_jsx_runtime.jsxs)("div", {\n\t\t\t\t\t\t\t\t\tstyle: { width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#dcfce7", color: "#15803d", fontSize: 10, padding: 2, textAlign: "center" },\n\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("span", { style: { fontSize: 20 }, children: "📄" }), (0, react_jsx_runtime.jsx)("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }, children: item.alt })]\n\t\t\t\t\t\t\t\t}) : (0, react_jsx_runtime.jsx)("img", {\n\t\t\t\t\t\t\t\t\tsrc: item.previewUrl,\n\t\t\t\t\t\t\t\t\talt: item.alt\n\t\t\t\t\t\t\t\t})',
+            }
+          ]);
+        }
       }
     }
   }

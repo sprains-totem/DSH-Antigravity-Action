@@ -20,6 +20,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
 // Antigravity (Google Cloud Code) OAuth + v1internal wire.
 // Reference: Antigravity-Manager (src-tauri/src/modules/oauth.rs, proxy/upstream/client.rs,
@@ -61,29 +62,29 @@ const OFFICIAL_USER_AGENT = 'vscode/1.X.X (Antigravity/4.3.0)'
 // fetchAvailableModels; the wire `model` field passes options.model through.
 // ---------------------------------------------------------------------------
 const DEFAULT_MODELS = [
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image'] },
-  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-2.5-flash-thinking', name: 'Gemini 2.5 Flash Thinking', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3-flash', name: 'Gemini 3 Flash', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3-flash-agent', name: 'Gemini 3 Flash Agent', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro High', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.1-pro-low', name: 'Gemini 3.1 Pro Low', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', contextWindow: 1_000_000, maxTokens: 16384, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash Image', contextWindow: 1_000_000, maxTokens: 16384, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.5-flash-extra-low', name: 'Gemini 3.5 Flash Extra Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.5-flash-low', name: 'Gemini 3.5 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.6-flash-high', name: 'Gemini 3.6 Flash High', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.6-flash-medium', name: 'Gemini 3.6 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.6-flash-tiered', name: 'Gemini 3.6 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash High', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.7-flash-medium', name: 'Gemini 3.7 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.7-flash-low', name: 'Gemini 3.7 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-3.7-flash-tiered', name: 'Gemini 3.7 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'gemini-pro-agent', name: 'Gemini Pro Agent', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image'] },
-  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
-  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image'] },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-2.5-flash-thinking', name: 'Gemini 2.5 Flash Thinking', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3-flash', name: 'Gemini 3 Flash', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3-flash-agent', name: 'Gemini 3 Flash Agent', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro High', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.1-pro-low', name: 'Gemini 3.1 Pro Low', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', contextWindow: 1_000_000, maxTokens: 16384, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.1-flash-image', name: 'Gemini 3.1 Flash Image', contextWindow: 1_000_000, maxTokens: 16384, inputModalities: ['text', 'image', 'video'] },
+  { id: 'gemini-3.5-flash-extra-low', name: 'Gemini 3.5 Flash Extra Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.5-flash-low', name: 'Gemini 3.5 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.6-flash-high', name: 'Gemini 3.6 Flash High', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.6-flash-medium', name: 'Gemini 3.6 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.6-flash-tiered', name: 'Gemini 3.6 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash High', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.7-flash-medium', name: 'Gemini 3.7 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.7-flash-low', name: 'Gemini 3.7 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.7-flash-tiered', name: 'Gemini 3.7 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-pro-agent', name: 'Gemini Pro Agent', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video'] },
+  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video'] },
   { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B Medium', contextWindow: 128_000, maxTokens: 65536, inputModalities: ['text'] },
 ]
 
@@ -93,7 +94,7 @@ const catalogModel = z.object({
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
-  inputModalities: z.array(z.union([z.const('text'), z.const('image')])),
+  inputModalities: z.array(z.union([z.const('text'), z.const('image'), z.const('video'), z.const('audio'), z.const('pdf'), z.const('document'), z.const('file')])),
 })
 
 const Config = z.object({
@@ -515,8 +516,342 @@ function isGemini3Flash(model) {
 /** Default input modalities by family; catalog entries may override. */
 function inputModalitiesOf(modelId) {
   const lower = modelId.toLowerCase()
-  if (lower.startsWith('gemini') || lower.startsWith('claude')) return ['text', 'image']
+  if (lower.startsWith('gemini')) return ['text', 'image', 'video', 'audio', 'document']
+  if (lower.startsWith('claude')) return ['text', 'image', 'video']
   return ['text']
+}
+
+// ---------------------------------------------------------------------------
+// Multimodal input tools: read_video, read_audio, read_pdf.
+// Attaches local media/documents as inlineData parts so the model analyzes
+// audio, video, PDF layouts, tables, and images directly.
+// ---------------------------------------------------------------------------
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024 // 300MB video cap
+const MAX_AUDIO_BYTES = 100 * 1024 * 1024 // 100MB audio cap
+const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024 // 100MB PDF/document cap
+
+/** Sniff the container of a video buffer and return its MIME type, or undefined. */
+function sniffVideoMimeType(buf) {
+  if (buf.length >= 12 && buf.toString('latin1', 4, 8) === 'ftyp') {
+    // ISO BMFF: mp4 / mov / m4v / heic-family. Brand at offset 8..12.
+    const brand = buf.toString('latin1', 8, 12)
+    if (['qt  ', 'isom', 'mp42', 'avc1', 'mp41', 'M4V ', 'M4A ', '3gp4', '3gp5', '3gp6'].includes(brand)) {
+      return brand === 'qt  ' ? 'video/quicktime' : 'video/mp4'
+    }
+  }
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return 'video/webm' // EBML magic (Matroska/WebM)
+  }
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'AVI ') {
+    return 'video/x-msvideo'
+  }
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'OggS') {
+    return 'video/ogg'
+  }
+  return undefined
+}
+
+const VIDEO_EXT_MIME = {
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.ogg': 'video/ogg',
+  '.ogv': 'video/ogg',
+}
+
+/** Sniff the container of an audio buffer and return its MIME type, or undefined. */
+function sniffAudioMimeType(buf) {
+  if (buf.length >= 3 && buf.toString('latin1', 0, 3) === 'ID3') return 'audio/mp3'
+  if (buf.length >= 2 && buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return 'audio/mp3'
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WAVE') return 'audio/wav'
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'fLaC') return 'audio/flac'
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'OggS') return 'audio/ogg'
+  if (buf.length >= 12 && buf.toString('latin1', 4, 8) === 'ftyp') {
+    const brand = buf.toString('latin1', 8, 12)
+    if (['M4A ', 'M4B ', 'mp42', 'isom'].includes(brand)) return 'audio/m4a'
+  }
+  return undefined
+}
+
+const AUDIO_EXT_MIME = {
+  '.mp3': 'audio/mp3',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/m4a',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.flac': 'audio/flac',
+  '.weba': 'audio/webm',
+}
+
+/** Sniff the container of a document buffer (PDF / RTF / Jupyter) and return its MIME type, or undefined. */
+function sniffDocumentMimeType(buf) {
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === '%PDF') return 'application/pdf'
+  if (buf.length >= 5 && buf.toString('latin1', 0, 5) === '{\\rtf') return 'application/rtf'
+  try {
+    const text = buf.slice(0, 500).toString('utf8')
+    if (text.includes('"cells"') && text.includes('"nbformat"')) return 'application/x-ipynb+json'
+  } catch {}
+  return undefined
+}
+
+const DOCUMENT_EXT_MIME = {
+  '.pdf': 'application/pdf',
+  '.ipynb': 'application/x-ipynb+json',
+  '.rtf': 'application/rtf',
+  '.csv': 'text/csv',
+}
+
+/** Register the model-facing read_video tool (parallel to read_image). */
+function applyReadVideoTool(ctx) {
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(defineTool({
+      name: 'read_video',
+      description: 'Read a local video file (mp4/mov/webm/mkv/avi/ogg) and attach its frames to the conversation so the current model can analyze the video content, audio, and timing. Requires the current model to accept video input. Large files are capped; refuse inputs above the cap instead of reading them.',
+      parameters: {
+        file_path: {
+          type: 'string',
+          required: true,
+          description: 'Path to the video file, resolved by the filesystem backend.',
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string' },
+            mimeType: { type: 'string', required: true },
+            bytes: { type: 'integer', required: true },
+            data: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `Attached video ${value.name ?? value.path} (${value.mimeType}, ${(value.bytes / 1024 / 1024).toFixed(1)} MB) for the current model to analyze.`,
+        }, {
+          type: 'video',
+          mimeType: value.mimeType,
+          data: value.data,
+        }],
+        presentationMeta: (_args, value) => ({
+          path: value.path,
+          mimeType: value.mimeType,
+          sizeBytes: value.bytes,
+        }),
+      },
+      timeoutMs: 120_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const filePath = String(args.file_path ?? '').trim()
+        if (filePath.length === 0) throw new Error('read_video: file_path must be a non-empty string')
+        const resolved = path.resolve(filePath)
+        let stat
+        try {
+          stat = fs.statSync(resolved)
+        } catch {
+          throw new Error(`read_video: cannot stat "${filePath}" (resolved ${resolved}): the file does not exist or is not readable`)
+        }
+        if (!stat.isFile()) throw new Error(`read_video: "${filePath}" is not a regular file`)
+        if (stat.size === 0) throw new Error(`read_video: "${filePath}" is empty`)
+        if (stat.size > MAX_VIDEO_BYTES) {
+          throw new Error(`read_video: "${filePath}" is ${(stat.size / 1024 / 1024).toFixed(1)} MB, exceeding the ${(MAX_VIDEO_BYTES / 1024 / 1024)} MB cap; split or downscale the video first`)
+        }
+        const buf = fs.readFileSync(resolved)
+        const sniffed = sniffVideoMimeType(buf)
+        const extMime = VIDEO_EXT_MIME[path.extname(resolved).toLowerCase()]
+        const mimeType = sniffed ?? extMime
+        if (mimeType === undefined) {
+          throw new Error(`read_video: "${filePath}" does not look like a supported video container (mp4/mov/webm/mkv/avi/ogg)`)
+        }
+        return {
+          path: resolved,
+          name: path.basename(resolved),
+          mimeType,
+          bytes: buf.length,
+          data: buf.toString('base64'),
+        }
+      },
+      presentCall(args) {
+        return {
+          card: 'generic',
+          title: `Read video ${args.file_path}`,
+          kind: 'read',
+          locations: [{ path: args.file_path }],
+        }
+      },
+    }))
+  })
+}
+
+/** Register the model-facing read_audio tool. */
+function applyReadAudioTool(ctx) {
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(defineTool({
+      name: 'read_audio',
+      description: 'Read a local audio file (mp3/wav/m4a/aac/ogg/opus/flac/weba) and attach its audio stream to the conversation so the model can analyze the speech, tone, music, and timing.',
+      parameters: {
+        file_path: {
+          type: 'string',
+          required: true,
+          description: 'Path to the audio file, resolved by the filesystem backend.',
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string' },
+            mimeType: { type: 'string', required: true },
+            bytes: { type: 'integer', required: true },
+            data: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `Attached audio ${value.name ?? value.path} (${value.mimeType}, ${(value.bytes / 1024 / 1024).toFixed(2)} MB) for the current model to analyze.`,
+        }, {
+          type: 'audio',
+          mimeType: value.mimeType,
+          data: value.data,
+        }],
+        presentationMeta: (_args, value) => ({
+          path: value.path,
+          mimeType: value.mimeType,
+          sizeBytes: value.bytes,
+        }),
+      },
+      timeoutMs: 120_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const filePath = String(args.file_path ?? '').trim()
+        if (filePath.length === 0) throw new Error('read_audio: file_path must be a non-empty string')
+        const resolved = path.resolve(filePath)
+        let stat
+        try {
+          stat = fs.statSync(resolved)
+        } catch {
+          throw new Error(`read_audio: cannot stat "${filePath}" (resolved ${resolved}): the file does not exist or is not readable`)
+        }
+        if (!stat.isFile()) throw new Error(`read_audio: "${filePath}" is not a regular file`)
+        if (stat.size === 0) throw new Error(`read_audio: "${filePath}" is empty`)
+        if (stat.size > MAX_AUDIO_BYTES) {
+          throw new Error(`read_audio: "${filePath}" is ${(stat.size / 1024 / 1024).toFixed(1)} MB, exceeding the ${(MAX_AUDIO_BYTES / 1024 / 1024)} MB cap; split or compress the audio first`)
+        }
+        const buf = fs.readFileSync(resolved)
+        const sniffed = sniffAudioMimeType(buf)
+        const extMime = AUDIO_EXT_MIME[path.extname(resolved).toLowerCase()]
+        const mimeType = sniffed ?? extMime
+        if (mimeType === undefined) {
+          throw new Error(`read_audio: "${filePath}" does not look like a supported audio format (mp3/wav/m4a/aac/ogg/opus/flac/weba)`)
+        }
+        return {
+          path: resolved,
+          name: path.basename(resolved),
+          mimeType,
+          bytes: buf.length,
+          data: buf.toString('base64'),
+        }
+      },
+      presentCall(args) {
+        return {
+          card: 'generic',
+          title: `Read audio ${args.file_path}`,
+          kind: 'read',
+          locations: [{ path: args.file_path }],
+        }
+      },
+    }))
+  })
+}
+
+/** Register the model-facing read_pdf tool. */
+function applyReadPdfTool(ctx) {
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(defineTool({
+      name: 'read_pdf',
+      description: 'Read a local PDF document file and attach its pages/layout to the conversation so the model can analyze the text, charts, tables, and document structure.',
+      parameters: {
+        file_path: {
+          type: 'string',
+          required: true,
+          description: 'Path to the PDF file, resolved by the filesystem backend.',
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            name: { type: 'string' },
+            mimeType: { type: 'string', required: true },
+            bytes: { type: 'integer', required: true },
+            data: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `Attached PDF document ${value.name ?? value.path} (${value.mimeType}, ${(value.bytes / 1024 / 1024).toFixed(2)} MB) for the current model to analyze.`,
+        }, {
+          type: 'pdf',
+          mimeType: value.mimeType,
+          data: value.data,
+        }],
+        presentationMeta: (_args, value) => ({
+          path: value.path,
+          mimeType: value.mimeType,
+          sizeBytes: value.bytes,
+        }),
+      },
+      timeoutMs: 120_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const filePath = String(args.file_path ?? '').trim()
+        if (filePath.length === 0) throw new Error('read_pdf: file_path must be a non-empty string')
+        const resolved = path.resolve(filePath)
+        let stat
+        try {
+          stat = fs.statSync(resolved)
+        } catch {
+          throw new Error(`read_pdf: cannot stat "${filePath}" (resolved ${resolved}): the file does not exist or is not readable`)
+        }
+        if (!stat.isFile()) throw new Error(`read_pdf: "${filePath}" is not a regular file`)
+        if (stat.size === 0) throw new Error(`read_pdf: "${filePath}" is empty`)
+        if (stat.size > MAX_DOCUMENT_BYTES) {
+          throw new Error(`read_pdf: "${filePath}" is ${(stat.size / 1024 / 1024).toFixed(1)} MB, exceeding the ${(MAX_DOCUMENT_BYTES / 1024 / 1024)} MB cap; split the PDF first`)
+        }
+        const buf = fs.readFileSync(resolved)
+        const sniffed = sniffDocumentMimeType(buf)
+        const extMime = DOCUMENT_EXT_MIME[path.extname(resolved).toLowerCase()]
+        const mimeType = sniffed ?? extMime
+        if (mimeType === undefined) {
+          throw new Error(`read_pdf: "${filePath}" does not look like a supported document (PDF/Jupyter/RTF/CSV)`)
+        }
+        return {
+          path: resolved,
+          name: path.basename(resolved),
+          mimeType,
+          bytes: buf.length,
+          data: buf.toString('base64'),
+        }
+      },
+      presentCall(args) {
+        return {
+          card: 'generic',
+          title: `Read PDF ${args.file_path}`,
+          kind: 'read',
+          locations: [{ path: args.file_path }],
+        }
+      },
+    }))
+  })
 }
 
 async function serializeMessages(messages, sessionId, model, attachments) {
@@ -587,32 +922,80 @@ async function serializeMessages(messages, sessionId, model, attachments) {
     if (toolResults.length > 0) {
       const parts = []
       for (const result of toolResults) {
-        parts.push({
-          functionResponse: {
-            name: callNames.get(result.toolCallId) ?? 'unknown',
-            response: { result: flattenText(result.content) || '(no output)' },
-          },
-        })
+        const mediaParts = []
+        const textContent = flattenText(result.content)
+        // Media carried by tool results (video/image blocks): the official
+        // Antigravity client attaches media read through a tool (e.g.
+        // view_file) as NESTED parts[].inlineData inside the functionResponse
+        // (captured: {"functionResponse":{...,"parts":[{"inlineData":{
+        // "mimeType":"video/mp4","data":"AAAAIGZ0eXBpc29t..."}}]}}). Emit the
+        // same shape so video/image tool reads reach the model the way the
+        // real client sends them. Data may be inlined (read_video/read_image
+        // results) or resolved through the durable attachment service.
+        // The parts array carries ONLY media; the tool's text result stays in
+        // response.result so the no-media wire shape is unchanged (the prefix
+        // cache depends on it).
+        for (const block of result.content) {
+          if (typeof block.mimeType === 'string' && typeof block.data === 'string' && block.data.length > 0) {
+            mediaParts.push({ inlineData: { mimeType: block.mimeType, data: block.data } })
+          } else if (block.type === 'image' && block.attachment !== undefined && attachments !== undefined) {
+            const stored = await attachments.readImage(block.attachment)
+            mediaParts.push({
+              inlineData: {
+                mimeType: stored.ref.mediaType,
+                data: Buffer.from(stored.data).toString('base64'),
+              },
+            })
+          } else if ((block.type === 'video' || block.type === 'audio' || block.type === 'pdf' || block.type === 'document' || block.type === 'file') && typeof block.data === 'string' && block.data.length > 0) {
+            mediaParts.push({ inlineData: { mimeType: block.mimeType || 'application/octet-stream', data: block.data } })
+          }
+        }
+        const fr = {
+          name: callNames.get(result.toolCallId) ?? 'unknown',
+          response: { result: textContent || '(no output)' },
+        }
+        if (mediaParts.length > 0) {
+          // Match the official functionResponse media shape, which also carries
+          // the tool-call id: {"functionResponse":{"id":"call_...","name":...,
+          // "response":{...},"parts":[{"inlineData":{...}}]}}
+          fr.id = result.toolCallId ?? ''
+          fr.parts = mediaParts
+        }
+        parts.push({ functionResponse: fr })
       }
       wire.push({ role: 'model', parts })
     }
     const parts = []
     const text = flattenText(message.content)
     if (text.length > 0) parts.push({ text })
-    // Image blocks: the Antigravity client sends user images as
-    // inlineData {mimeType, data(base64)} parts (captured:
-    // {"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo..."}}).
-    // Resolve durable attachment bytes through the attachment service when
-    // available; images without a resolver are skipped (text-only fallback).
+    // Multimodal blocks (image/video/audio/pdf/document/file): the Antigravity
+    // wire sends media as inlineData {mimeType, data(base64)} parts.
     for (const block of message.content) {
-      if (block.type !== 'image' || attachments === undefined) continue
-      const stored = await attachments.readImage(block.attachment)
-      parts.push({
-        inlineData: {
-          mimeType: stored.ref.mediaType,
-          data: Buffer.from(stored.data).toString('base64'),
-        },
-      })
+      if (block.type === 'image') {
+        if (attachments !== undefined && block.attachment !== undefined) {
+          const stored = await attachments.readImage(block.attachment)
+          parts.push({
+            inlineData: {
+              mimeType: stored.ref.mediaType,
+              data: Buffer.from(stored.data).toString('base64'),
+            },
+          })
+        } else if (typeof block.mimeType === 'string' && typeof block.data === 'string' && block.data.length > 0) {
+          parts.push({ inlineData: { mimeType: block.mimeType, data: block.data } })
+        }
+      } else if (
+        (block.type === 'video' || block.type === 'audio' || block.type === 'pdf' || block.type === 'document' || block.type === 'file') &&
+        typeof block.data === 'string' && block.data.length > 0
+      ) {
+        parts.push({
+          inlineData: {
+            mimeType: block.mimeType || (block.type === 'pdf' ? 'application/pdf' : 'application/octet-stream'),
+            data: block.data,
+          },
+        })
+      } else if (typeof block.mimeType === 'string' && typeof block.data === 'string' && block.data.length > 0) {
+        parts.push({ inlineData: { mimeType: block.mimeType, data: block.data } })
+      }
     }
     if (parts.length > 0) wire.push({ role: 'user', parts })
   }
@@ -1246,6 +1629,12 @@ function apply(ctx, config) {
     }
   }
   options()
+
+  // Model-facing multimodal tools: lets the model attach local video/audio/pdf files
+  // to the conversation (the Antigravity wire carries them as inlineData parts).
+  applyReadVideoTool(ctx)
+  applyReadAudioTool(ctx)
+  applyReadPdfTool(ctx)
 
   const resolveRefreshToken = async (connection) => {
     const ref = connection.refreshTokenEnv ?? 'ANTIGRAVITY_REFRESH_TOKEN'

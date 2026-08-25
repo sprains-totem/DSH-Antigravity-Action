@@ -27,6 +27,7 @@
     "@deepseek-ai/dsh-launch-environment": "*",
     "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/dsh-timeout": "*",
-    "@deepseek-ai/schemastery": "*"
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-tools": "*"
   }
 }
