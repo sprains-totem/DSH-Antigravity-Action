@@ -107,8 +107,26 @@ graph TD
 ├── cordis.patch.yml              # DSH Web Profile 插件注册编排文件
 ├── unlock-dsh.mjs                # DSH 运行环境深度解禁与权限修补脚本
 ├── start.sh                      # 统一生命周期管理、A/B 槽自愈守护与启动器
+├── AGENTS.md                     # Agent 规范、自我演进与工作流开发指引
 └── README.md                     # 项目说明文档
 ```
+
+---
+
+## 📚 项目参考与致谢 (References & Acknowledgements)
+
+本项目在开发与演进过程中，深度参考并致谢以下优秀开源项目与社区贡献：
+
+1. **[DeepSeek Harness (`@deepseek-ai/dsh`)](https://github.com/deepseek-ai/DeepSeek-Harness)**  
+   强大的多 Agent 运行时与 Cordis 架构微内核底座。
+2. **[dsh-web-mobile (`@dsh-external/dsh-mobile-nav`)](https://github.com/mexiaosqwq/dsh-web-mobile)** by [@mexiaosqwq](https://github.com/mexiaosqwq)  
+   业界领先的 DSH 移动端响应式与触屏抽屉化适配方案，提供了出色的断点布局与全树 Reconciler 调度引擎。
+3. **`dsh-harness-ops` 套件 (`dsh-snapshot-ab` & `dsh-fail-soft`)**  
+   为本项目提供了 A/B 槽影子验证、启动期健康窗口监控以及运行时故障软隔离的架构思想与自愈设计参考。
+4. **[Google Cloud Code (Antigravity)](https://cloud.google.com/code)**  
+   提供强大的 Gemini 旗舰系列大模型推理服务与 Grounding Search 接口支持。
+5. **[Cloudflare Tunnel & Workers](https://www.cloudflare.com/)**  
+   提供零公网端口暴露的安全隧道与边缘轻量级动态路由代理方案。
 
 ---
 
