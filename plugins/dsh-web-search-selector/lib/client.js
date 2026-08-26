@@ -50,7 +50,7 @@
 			const { t } = props;
 			const state = props.useWebSearchSelectorCard((snapshot) => snapshot);
 			const disabled = !state.writable;
-			const current = state.draftProvider ?? state.effectiveProvider ?? "deepseek-official";
+			const current = state.draftProvider ?? state.effectiveProvider ?? "antigravity";
 			const dirty = state.draftProvider !== void 0 && state.draftProvider !== state.effectiveProvider;
 
 			return (0, react_jsx_runtime.jsxs)("li", {
@@ -148,8 +148,8 @@
 										disabled,
 										onChange: (e) => props.setProvider(e.target.value),
 										children: [
-											(0, react_jsx_runtime.jsx)("option", { value: "deepseek-official", children: t("optDeepseek") }),
-											(0, react_jsx_runtime.jsx)("option", { value: "antigravity", children: t("optAntigravity") })
+											(0, react_jsx_runtime.jsx)("option", { value: "antigravity", children: t("optAntigravity") }),
+											(0, react_jsx_runtime.jsx)("option", { value: "deepseek-official", children: t("optDeepseek") })
 										]
 									}),
 									(0, react_jsx_runtime.jsx)("p", {
@@ -214,7 +214,7 @@
 
 			projection() {
 				const snapshot = this.scope.getSnapshot();
-				const effective = snapshot.value?.provider ?? "deepseek-official";
+				const effective = snapshot.value?.provider ?? "antigravity";
 				const isOverridden = snapshot.user?.provider !== void 0;
 				return {
 					writable: snapshot.writable,

@@ -128,9 +128,23 @@ EOF
     echo "✅ 已注入 ANTIGRAVITY_REFRESH_TOKEN 凭证。"
   fi
 
-  # 5. 导出 Cloudflare Worker 环境变量供 dsh-cloudflare-tunnel 插件使用
+  # 5. 导出 Cloudflare Worker 与默认搜索提供方环境变量
   export CF_WORKER_URL="${CF_WORKER_URL}"
   export CF_WORKER_TOKEN="${CF_WORKER_TOKEN}"
+  export DSH_WEB_SEARCH_PROVIDER="${DSH_WEB_SEARCH_PROVIDER:-antigravity}"
+
+  # 6. 初始化 settings.yaml 默认配置（若不存在）
+  if [ ! -f "${DSH_HOME_DIR}/settings.yaml" ]; then
+    cat <<EOF > "${DSH_HOME_DIR}/settings.yaml"
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+web-search-selector:
+  provider: antigravity
+agent-default-model:
+  provider: antigravity
+  model: gemini-3.7-flash-high
+EOF
+  fi
 }
 
 deploy_current_profile

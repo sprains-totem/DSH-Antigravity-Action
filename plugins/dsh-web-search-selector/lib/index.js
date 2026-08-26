@@ -1,5 +1,5 @@
 // Web-search provider selector (host): one settings namespace that switches the
-// ctx.web searchProvider between deepseek-official and antigravity.
+// ctx.web searchProvider between antigravity and deepseek-official.
 //
 // Flow: the user edits `web-search.provider` in settings (Models page or a
 // settings UI). The settings service hot-publishes the change; this plugin's
@@ -18,7 +18,7 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 const name = 'web-search-selector'
 const inject = ['web']
 const NS = settingsNamespace('web-search-selector')
-const PROVIDERS = ['deepseek-official', 'antigravity']
+const PROVIDERS = ['antigravity', 'deepseek-official']
 
 function resolvePatchPath(ctx) {
   if (ctx.baseUrl) {
@@ -49,19 +49,19 @@ function applyProviderToPatch(patchPath, provider) {
 }
 
 const Config = z.object({
-  provider: z.union(PROVIDERS).default('deepseek-official'),
+  provider: z.union(PROVIDERS).default('antigravity'),
 })
 
 function apply(ctx, config) {
   const patchPath = resolvePatchPath(ctx)
-  let readSection = () => ({ provider: 'deepseek-official' })
+  let readSection = () => ({ provider: 'antigravity' })
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {
       readSection = source
     },
     onChange: () => {
       const section = readSection() ?? {}
-      const provider = section.provider
+      const provider = section.provider ?? 'antigravity'
       if (provider !== undefined && PROVIDERS.includes(provider)) {
         const current = currentProviderFromPatch(patchPath)
         if (current !== provider) {

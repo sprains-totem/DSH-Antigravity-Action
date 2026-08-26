@@ -32,4 +32,4 @@
 
 - id: web
   config:
-    searchProvider: deepseek-official
+    searchProvider: antigravity

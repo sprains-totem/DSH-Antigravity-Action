@@ -1,3 +1,5 @@
 node_modules/
 status.json
 .credentials.yaml
+antigravity_usage.json
+.dsh_images/
