@@ -36,7 +36,22 @@
 
 ---
 
-## 2. 工作流解耦与 Action 内修改规范 (CRITICAL)
+## 2. 关联子项目仓库与组件来源 (Ecosystem Matrix)
+
+本项目作为聚合部署与运行容器，其核心插件与子系统分别由以下开源仓库维护：
+
+1. **[sprains-totem/dsh-Antigravity-Provider](https://github.com/sprains-totem/dsh-Antigravity-Provider)**：
+   - 核心 Antigravity 插件套件源代码仓库；
+   - 维护 `dsh-llm-antigravity`、`dsh-web-search-antigravity`、`dsh-web-search-selector` 与 `dsh-image-gen-antigravity`。
+2. **[sprains-totem/dsh-cloudflare-tunnel](https://github.com/sprains-totem/dsh-cloudflare-tunnel)**：
+   - Cloudflare 安全穿透与 Worker 动态路由代码仓库；
+   - 维护 `dsh-cloudflare-tunnel` 插件及 Worker 代理脚本。
+3. **[sprains-totem/DSH-Antigravity-Action](https://github.com/sprains-totem/DSH-Antigravity-Action)**（本项目）：
+   - 负责上述套件的云端聚合装配、A/B 槽自愈生命周期管理与一键部署。
+
+---
+
+## 3. 工作流解耦与 Action 内修改规范 (CRITICAL)
 
 ### ⚠️ 权限铁律
 * **严禁尝试在 Action 运行期间直接修改 `.github/workflows/dsh.yml`**！
@@ -48,7 +63,7 @@
 
 ---
 
-## 3. A/B 槽位自愈与崩溃保护机制
+## 4. A/B 槽位自愈与崩溃保护机制
 
 为了解决“Agent 自我修改（Self-modification）改出语法错误导致重启崩溃掉线”的痛点，本项目内建了双层自愈防护：
 
@@ -67,7 +82,7 @@
 
 ---
 
-## 4. 插件体系与开发指南
+## 5. 插件体系与开发指南
 
 所有插件均统一存放在 `plugins/<plugin-name>` 目录下。
 
@@ -96,7 +111,7 @@ plugins/my-plugin/
 
 ---
 
-## 5. 移动端 UI 适配指南 (`dsh-mobile-nav`)
+## 6. 移动端 UI 适配指南 (`dsh-mobile-nav`)
 
 本项目集成了 `@dsh-external/dsh-mobile-nav`，为手机和窄屏设备提供丝滑的触屏操作：
 
@@ -112,7 +127,7 @@ plugins/my-plugin/
 
 ---
 
-## 6. 核心解禁补丁 (`unlock-dsh.mjs`) 维护规范
+## 7. 核心解禁补丁 (`unlock-dsh.mjs`) 维护规范
 
 `unlock-dsh.mjs` 负责在每次启动前自动为 DSH 核心包打入针对云端/反向代理环境的解禁补丁：
 - **网络与权限**：解开 `isLoopbackHostname`、`isTrustedApiRequest`，允许外部反代与非 127.0.0.1 访问；

@@ -5,6 +5,18 @@
 
 ---
 
+## 🧩 关联子项目仓库 (Sub-Projects & Ecosystem)
+
+本项目作为聚合部署运行时（All-in-One Runner），由以下核心独立开源子项目构成：
+
+| 项目仓库 | 说明 | 核心组件 |
+| :--- | :--- | :--- |
+| **[sprains-totem/dsh-Antigravity-Provider](https://github.com/sprains-totem/dsh-Antigravity-Provider)** | Antigravity 核心插件套件 | `dsh-llm-antigravity`<br>`dsh-web-search-antigravity`<br>`dsh-web-search-selector`<br>`dsh-image-gen-antigravity` |
+| **[sprains-totem/dsh-cloudflare-tunnel](https://github.com/sprains-totem/dsh-cloudflare-tunnel)** | Cloudflare 安全穿透与路由 | `dsh-cloudflare-tunnel`<br>`cloudflare-worker.js`<br>`cloudflare-worker-proxy.js` |
+| **[sprains-totem/DSH-Antigravity-Action](https://github.com/sprains-totem/DSH-Antigravity-Action)** | 云端全自动部署与自愈守护 | 本项目聚合运行时、`start.sh` A/B 自愈守护、解耦 Action 工作流 |
+
+---
+
 ## 🌟 核心特性与插件套件
 
 本项目为 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 官方客户端在 GitHub Actions 云端环境的一键部署方案，内置全套开箱即用的 Antigravity 插件扩展与生产级运维能力：
