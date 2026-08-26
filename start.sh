@@ -61,8 +61,13 @@ rollback_from_slot_a() {
     cp "$SLOT_A_DIR/unlock-dsh.mjs" "unlock-dsh.mjs"
   fi
   if [ -d "$SLOT_A_DIR/plugins" ]; then
+    rm -rf "plugins"
+    cp -r "$SLOT_A_DIR/plugins" "plugins"
     rm -rf "$PROFILE_WEB_DIR/plugins"/* "$PROFILE_WEB_DIR/node_modules"/*
     deploy_plugins "$SLOT_A_DIR/plugins"
+  fi
+  if [ -f "unlock-dsh.mjs" ]; then
+    node unlock-dsh.mjs
   fi
 }
 
@@ -154,11 +159,60 @@ echo "🛡️ [4/4] 启动带 A/B 槽自愈守护的 DeepSeek Harness Web 服务
 echo "=========================================================================="
 
 run_dsh() {
-  echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
-  echo "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
-  
-  # 直接以主进程执行 dsh web，输出直通终端
-  exec dsh web --port "${DSH_PORT}"
+  local crash_log="/tmp/dsh_crash.log"
+  local is_rollback_attempt=0
+
+  while true; do
+    echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
+    echo "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
+    
+    # 启动 dsh web 并捕获输出与进程 PID
+    dsh web --port "${DSH_PORT}" 2>&1 | tee "$crash_log" &
+    local DSH_PID=$!
+
+    # 15 秒健康判定监控
+    echo "⏳ [A/B 自愈守护] 正在进行 15 秒启动健康心跳检测..."
+    local healthy=true
+    for i in $(seq 1 15); do
+      sleep 1
+      if ! kill -0 "$DSH_PID" 2>/dev/null; then
+        healthy=false
+        break
+      fi
+    done
+
+    if [ "$healthy" = true ]; then
+      echo "✅ [A/B 自愈守护] DSH 实例已稳定运行超过 15 秒，通过健康检查！"
+      if [ "$is_rollback_attempt" -eq 0 ]; then
+        echo "🚀 [A/B 自愈守护] 当前版本自动晋升为 Slot A 稳定快照..."
+        snapshot_to_slot_a
+      fi
+      # 挂起等待主进程运行
+      wait "$DSH_PID" || true
+      local exit_code=$?
+      echo "⚠️ DSH 进程退出 (Exit Code: $exit_code)"
+      break
+    else
+      wait "$DSH_PID" || true
+      local exit_code=$?
+      echo "🚨 [A/B 自愈守护] 警告：DSH 实例在 15 秒健康窗口内异常崩溃！(Exit Code: $exit_code)"
+      echo "====== 崩溃堆栈 (最后 20 行) ======"
+      tail -n 20 "$crash_log" 2>/dev/null || true
+      echo "==================================="
+
+      if [ "$is_rollback_attempt" -eq 0 ]; then
+        is_rollback_attempt=1
+        echo "🔄 [A/B 自愈守护] 正在执行自动回滚：从 Slot A 恢复稳定配置..."
+        rollback_from_slot_a
+        echo "🔄 [A/B 自愈守护] 正在以 Slot A 稳定配置重新拉起服务..."
+        sleep 2
+        continue
+      else
+        echo "❌ [A/B 自愈守护] 致命错误：Slot A 稳定配置亦无法启动，请检查基础环境！"
+        exit 1
+      fi
+    fi
+  done
 }
 
 run_dsh
