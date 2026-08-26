@@ -158,6 +158,48 @@ echo "==========================================================================
 echo "🛡️ [4/4] 启动带 A/B 槽自愈守护的 DeepSeek Harness Web 服务..."
 echo "=========================================================================="
 
+# 深度健康探针：检测进程存活、HTTP端口就绪及日志致命异常
+probe_dsh_health() {
+  local pid="$1"
+  local log_file="$2"
+  local max_wait=20
+  local http_ready=false
+
+  for i in $(seq 1 "$max_wait"); do
+    # 1. 进程存活检测
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "❌ [探针] DSH 进程已提前退出 (PID: $pid)"
+      return 1
+    fi
+
+    # 2. 检查日志中是否存在致命插件/模块异常
+    if grep -Ei "Intercepted uncaught exception|ERR_MODULE_NOT_FOUND|Cannot find module" "$log_file" 2>/dev/null; then
+      echo "❌ [探针] 启动日志中检测到未捕获的致命异常或模块缺失"
+      return 1
+    fi
+
+    # 3. HTTP 端口握手探针
+    if curl -fsS -m 2 "http://127.0.0.1:${DSH_PORT}/" >/dev/null 2>&1; then
+      http_ready=true
+      # HTTP 就绪后持续观察 3 秒确认稳定性
+      sleep 3
+      if kill -0 "$pid" 2>/dev/null && ! grep -Ei "Intercepted uncaught exception|ERR_MODULE_NOT_FOUND|Cannot find module" "$log_file" 2>/dev/null; then
+        echo "✅ [探针] Web 服务 (Port ${DSH_PORT}) HTTP 响应正常，且无致命异常日志。"
+        return 0
+      fi
+    fi
+
+    sleep 1
+  done
+
+  if [ "$http_ready" = false ]; then
+    echo "❌ [探针] 探测超时 ($max_wait 秒)：Web 服务未能正常响应 HTTP 请求"
+    return 1
+  fi
+
+  return 0
+}
+
 run_dsh() {
   local crash_log="/tmp/dsh_crash.log"
   local is_rollback_attempt=0
@@ -170,35 +212,37 @@ run_dsh() {
     dsh web --port "${DSH_PORT}" 2>&1 | tee "$crash_log" &
     local DSH_PID=$!
 
-    # 15 秒健康判定监控
-    echo "⏳ [A/B 自愈守护] 正在进行 15 秒启动健康心跳检测..."
-    local healthy=true
-    for i in $(seq 1 15); do
-      sleep 1
-      if ! kill -0 "$DSH_PID" 2>/dev/null; then
-        healthy=false
-        break
-      fi
-    done
+    echo "⏳ [A/B 自愈守护] 正在执行深度健康判定 (进程存活 + HTTP 握手 + 异常日志扫描)..."
+    if probe_dsh_health "$DSH_PID" "$crash_log"; then
+      echo "✅ [A/B 自愈守护] DSH 实例深度健康检查通过！"
 
-    if [ "$healthy" = true ]; then
-      echo "✅ [A/B 自愈守护] DSH 实例已稳定运行超过 15 秒，通过健康检查！"
+      # 晋升门禁：仅在非回滚状态且工作区为已提交稳定代码时，才允许晋升 Slot A
       if [ "$is_rollback_attempt" -eq 0 ]; then
-        echo "🚀 [A/B 自愈守护] 当前版本自动晋升为 Slot A 稳定快照..."
-        snapshot_to_slot_a
+        if git diff --quiet && git diff --cached --quiet 2>/dev/null; then
+          echo "🚀 [A/B 自愈守护] 检测到已提交稳定代码且通过深度健康检查，安全晋升为 Slot A 稳定快照..."
+          snapshot_to_slot_a
+        else
+          echo "ℹ️ [A/B 自愈守护] 当前工作区存在未提交修改 (Dirty Working Tree)，保留 Slot A 原始基准快照不予覆盖。"
+        fi
       fi
+
       # 挂起等待主进程运行
       wait "$DSH_PID" || true
       local exit_code=$?
       echo "⚠️ DSH 进程退出 (Exit Code: $exit_code)"
       break
     else
-      wait "$DSH_PID" || true
+      # 进程可能异常挂起或失败，若仍在运行则终止它
+      if kill -0 "$DSH_PID" 2>/dev/null; then
+        kill "$DSH_PID" 2>/dev/null || true
+      fi
+      wait "$DSH_PID" 2>/dev/null || true
       local exit_code=$?
-      echo "🚨 [A/B 自愈守护] 警告：DSH 实例在 15 秒健康窗口内异常崩溃！(Exit Code: $exit_code)"
-      echo "====== 崩溃堆栈 (最后 20 行) ======"
+
+      echo "🚨 [A/B 自愈守护] 警告：DSH 实例未通过健康检查！(Exit Code: $exit_code)"
+      echo "====== 异常日志截取 (最后 20 行) ======"
       tail -n 20 "$crash_log" 2>/dev/null || true
-      echo "==================================="
+      echo "======================================="
 
       if [ "$is_rollback_attempt" -eq 0 ]; then
         is_rollback_attempt=1
