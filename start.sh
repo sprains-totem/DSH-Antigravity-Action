@@ -16,7 +16,7 @@ SLOT_B_DIR="${DSH_HOME_DIR}/slots/slot-b"
 PROFILE_WEB_DIR="${DSH_HOME_DIR}/profiles/web"
 
 echo "=========================================================================="
-echo "🚀 [1/5] 初始化系统环境与依赖工具..."
+echo "🚀 [1/4] 初始化系统依赖环境..."
 echo "=========================================================================="
 sudo apt-get update -qq && sudo apt-get install -y -qq tmate curl jq
 
@@ -34,7 +34,7 @@ if ! command -v dsh &> /dev/null; then
 fi
 
 echo "=========================================================================="
-echo "🛡️ [2/5] A/B 槽位快照初始化与自愈环境准备..."
+echo "🛡️ [2/4] A/B 槽位快照初始化与自愈环境准备..."
 echo "=========================================================================="
 mkdir -p "$SLOT_A_DIR" "$SLOT_B_DIR" "$PROFILE_WEB_DIR/plugins" "$PROFILE_WEB_DIR/node_modules"
 
@@ -62,25 +62,17 @@ rollback_from_slot_a() {
   fi
   if [ -d "$SLOT_A_DIR/plugins" ]; then
     rm -rf "$PROFILE_WEB_DIR/plugins"/* "$PROFILE_WEB_DIR/node_modules"/*
-    cp -r "$SLOT_A_DIR/plugins"/* "$PROFILE_WEB_DIR/plugins/"
-    cp -r "$SLOT_A_DIR/plugins"/* "$PROFILE_WEB_DIR/node_modules/"
+    deploy_plugins "$SLOT_A_DIR/plugins"
   fi
 }
 
-# 如果尚无 Slot A 快照，进行初始备份
-if [ ! -f "$SLOT_A_DIR/cordis.patch.yml" ]; then
-  snapshot_to_slot_a
-fi
-
-echo "=========================================================================="
-echo "📦 [3/5] 部署插件套件 (移动端UI / Antigravity / Cloudflare / Fail-Soft)..."
-echo "=========================================================================="
-deploy_current_profile() {
+# 部署插件目录与处理 scoped package
+deploy_plugins() {
+  local src_dir="${1:-plugins}"
   mkdir -p "$PROFILE_WEB_DIR/plugins" "$PROFILE_WEB_DIR/node_modules"
   
-  # 1. 部署所有 plugins 到 web profile 及 node_modules
-  if [ -d "plugins" ]; then
-    for p in plugins/*; do
+  if [ -d "$src_dir" ]; then
+    for p in "$src_dir"/*; do
       [ -d "$p" ] || continue
       pname=$(basename "$p")
       
@@ -101,6 +93,19 @@ deploy_current_profile() {
       fi
     done
   fi
+}
+
+# 如果尚无 Slot A 快照，进行初始备份
+if [ ! -f "$SLOT_A_DIR/cordis.patch.yml" ]; then
+  snapshot_to_slot_a
+fi
+
+echo "=========================================================================="
+echo "📦 [3/4] 部署插件套件 (移动端UI / Antigravity / Cloudflare / Fail-Soft)..."
+echo "=========================================================================="
+deploy_current_profile() {
+  # 1. 部署插件
+  deploy_plugins "plugins"
 
   # 2. 部署 cordis.patch.yml
   if [ -f "cordis.patch.yml" ]; then
@@ -122,108 +127,24 @@ EOF
     export ANTIGRAVITY_REFRESH_TOKEN="$REFRESH_TOKEN"
     echo "✅ 已注入 ANTIGRAVITY_REFRESH_TOKEN 凭证。"
   fi
+
+  # 5. 导出 Cloudflare Worker 环境变量供 dsh-cloudflare-tunnel 插件使用
+  export CF_WORKER_URL="${CF_WORKER_URL}"
+  export CF_WORKER_TOKEN="${CF_WORKER_TOKEN}"
 }
 
 deploy_current_profile
 
 echo "=========================================================================="
-echo "🌐 [4/5] 启动 Cloudflare Tunnel 并自动同步 Worker 路由..."
-echo "=========================================================================="
-start_cloudflare_tunnel() {
-  cloudflared tunnel --url "http://127.0.0.1:${DSH_PORT}" --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-  
-  TUNNEL_URL=""
-  for i in $(seq 1 30); do
-    TUNNEL_URL=$(grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)
-    if [ -n "$TUNNEL_URL" ]; then
-      break
-    fi
-    sleep 1
-  done
-
-  if [ -n "$TUNNEL_URL" ]; then
-    echo "::add-mask::$TUNNEL_URL"
-    echo "✅ Cloudflare Tunnel 已成功建立。"
-    
-    if [ -n "$GITHUB_STEP_SUMMARY" ]; then
-      echo "## 🌐 DeepSeek Harness Router" >> "$GITHUB_STEP_SUMMARY"
-      echo "- **Status**: Online & Secured" >> "$GITHUB_STEP_SUMMARY"
-      echo "- **Port**: ${DSH_PORT}" >> "$GITHUB_STEP_SUMMARY"
-      echo "- **Mobile Adaptor**: Active (dsh-mobile-nav)" >> "$GITHUB_STEP_SUMMARY"
-      echo "- **Self-Healing Guard**: Active (A/B Slot & Fail-Soft)" >> "$GITHUB_STEP_SUMMARY"
-    fi
-
-    # 自动同步至 Cloudflare Worker 动态路由
-    if [ -n "$CF_WORKER_URL" ] && [ -n "$CF_WORKER_TOKEN" ]; then
-      echo "正在同步 Tunnel 路由至 Cloudflare Worker..."
-      SYNC_RES=$(curl -s -w "\n%{http_code}" -X POST "${CF_WORKER_URL%/}/update" \
-        -H "Authorization: Bearer $CF_WORKER_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"url\": \"$TUNNEL_URL\", \"port\": ${DSH_PORT}}")
-      HTTP_CODE=$(echo "$SYNC_RES" | tail -n 1)
-      BODY=$(echo "$SYNC_RES" | head -n -1)
-      if [ "$HTTP_CODE" -eq 200 ]; then
-        echo "✅ 成功同步至 Cloudflare Worker Router."
-        if [ -n "$GITHUB_STEP_SUMMARY" ]; then
-          echo "### 🚀 **Fixed Portal URL**: [$CF_WORKER_URL]($CF_WORKER_URL)" >> "$GITHUB_STEP_SUMMARY"
-        fi
-      else
-        echo "⚠️ 同步 Cloudflare Worker 失败 (HTTP $HTTP_CODE): $BODY"
-      fi
-    fi
-  else
-    echo "⚠️ Cloudflare tunnel 启动超时。"
-  fi
-}
-
-start_cloudflare_tunnel
-
-echo "=========================================================================="
-echo "🛡️ [5/5] 启动带 A/B 槽守护与自动回滚的 DSH Web 服务..."
+echo "🛡️ [4/4] 启动带 A/B 槽自愈守护的 DeepSeek Harness Web 服务..."
 echo "=========================================================================="
 
-# 启动 DSH Web 进程并进行启动期健康检测与持续运行
-run_dsh_with_guardian() {
+run_dsh() {
   echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
+  echo "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
   
-  # 启动 dsh web，同时打入控制台与日志文件
-  dsh web --port "${DSH_PORT}" 2>&1 | tee /tmp/dsh_runtime.log &
-  DSH_PID=$!
-
-  # 监控启动阶段（15秒健康窗口）
-  BOOT_CRASH=false
-  for i in $(seq 1 15); do
-    if ! kill -0 "$DSH_PID" 2>/dev/null; then
-      BOOT_CRASH=true
-      break
-    fi
-    sleep 1
-  done
-
-  if [ "$BOOT_CRASH" = true ]; then
-    echo "❌ 检测到 DSH 启动崩溃！"
-    echo "--- 最近 30 行崩溃日志 ---"
-    tail -n 30 /tmp/dsh_runtime.log || true
-    echo "---------------------------"
-    
-    # 执行 A/B 槽自愈回滚
-    rollback_from_slot_a
-    deploy_current_profile
-
-    echo "🔄 正在以 Slot A 稳定快照重新拉起服务..."
-    exec dsh web --port "${DSH_PORT}"
-  else
-    echo "🎉 DSH Web 启动成功并通过 15 秒健康判定！"
-    # 晋升为新的稳定快照 Slot A
-    snapshot_to_slot_a
-    
-    # 持续等待 DSH 进程运行；若退出则记录退出状态
-    set +e
-    wait "$DSH_PID"
-    EXIT_CODE=$?
-    echo "DSH 进程已退出 (Exit Code $EXIT_CODE)。"
-    exit $EXIT_CODE
-  fi
+  # 直接以主进程执行 dsh web，输出直通终端
+  exec dsh web --port "${DSH_PORT}"
 }
 
-run_dsh_with_guardian
+run_dsh
