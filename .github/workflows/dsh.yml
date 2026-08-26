@@ -1,4 +1,4 @@
-name: DeepSeek Harness Server (Direct Native 3080 & Fully Unlocked)
+name: DeepSeek Harness Server (A/B Self-Healing & Mobile Ready)
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   dsh-server:
-    name: Run DeepSeek Harness (Antigravity Suite & Direct Native Cloudflare Tunnel)
+    name: Run DeepSeek Harness Server (Decoupled Launcher)
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -32,94 +32,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install System Tools & Global DSH
-        run: |
-          sudo apt-get update && sudo apt-get install -y tmate curl
-          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared.deb
-          rm cloudflared.deb
-          sudo npm install -g @deepseek-ai/dsh
-          # 赋予 runner 用户对全局 node_modules 的完全读写权限
-          sudo chown -R $(whoami) /usr/local/lib/node_modules
-
-      - name: Setup DSH Profile, Plugins & Full Restriction Lifting
-        run: |
-          mkdir -p ~/.dsh/profiles/web/plugins ~/.dsh/profiles/web/node_modules
-
-          # 部署全部已在本地完整测试验证的 Antigravity 插件套件
-          cp -r plugins/* ~/.dsh/profiles/web/plugins/
-          cp -r plugins/* ~/.dsh/profiles/web/node_modules/
-
-          # 写入 web profile 的 cordis.patch.yml (切勿重复写入 ~/.dsh/cordis.patch.yml 以免产生 duplicate loader entry id)
-          cp cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
-          rm -f ~/.dsh/cordis.patch.yml
-
-          # 执行全局深度解禁
-          node unlock-dsh.mjs
-
-          REFRESH_TOKEN="${{ inputs.refresh_token || secrets.ANTIGRAVITY_REFRESH_TOKEN }}"
-          if [ -n "$REFRESH_TOKEN" ]; then
-            mkdir -p ~/.dsh
-            cat <<EOF > ~/.dsh/.credentials.yaml
-          ANTIGRAVITY_REFRESH_TOKEN: "$REFRESH_TOKEN"
-          EOF
-            echo "ANTIGRAVITY_REFRESH_TOKEN=$REFRESH_TOKEN" >> $GITHUB_ENV
-            echo "Configured ANTIGRAVITY_REFRESH_TOKEN credential."
-          fi
-
-      - name: Launch DeepSeek Harness Server (Direct Native 3080 & Cloudflare Tunnel)
+      # 解耦架构：工作流结构永久固定，所有具体安装、A/B 槽自愈与启动逻辑由 start.sh 驱动
+      - name: Launch DSH via Decoupled Lifecycle Manager
         env:
+          INPUT_REFRESH_TOKEN: ${{ inputs.refresh_token }}
+          ANTIGRAVITY_REFRESH_TOKEN: ${{ secrets.ANTIGRAVITY_REFRESH_TOKEN }}
           CF_WORKER_URL: ${{ secrets.CF_WORKER_URL }}
           CF_WORKER_TOKEN: ${{ secrets.CF_WORKER_TOKEN || secrets.CLOUDFLARE_WORKER_API }}
         run: |
-          echo "1. Starting Cloudflare Tunnel on port 3080..."
-          cloudflared tunnel --url http://127.0.0.1:3080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-
-          echo "2. Waiting for Cloudflare Tunnel to be ready..."
-          TUNNEL_URL=""
-          for i in $(seq 1 30); do
-            TUNNEL_URL=$(grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)
-            if [ -n "$TUNNEL_URL" ]; then
-              break
-            fi
-            sleep 1
-          done
-
-          # 启用 GitHub 官方全局脱敏屏蔽，防止日志意外泄露
-          if [ -n "$TUNNEL_URL" ]; then
-            echo "::add-mask::$TUNNEL_URL"
-          fi
-
-          echo ""
-          echo "=========================================================================="
-          if [ -n "$TUNNEL_URL" ]; then
-            echo "✅ Cloudflare Tunnel is established and secured."
-            echo ""
-            echo "## 🌐 DeepSeek Harness Router" >> $GITHUB_STEP_SUMMARY
-            echo "- **Status**: Online & Secured" >> $GITHUB_STEP_SUMMARY
-            echo "- **Port**: 3080" >> $GITHUB_STEP_SUMMARY
-
-            # 自动静默同步到 Cloudflare Worker 动态路由
-            if [ -n "$CF_WORKER_URL" ] && [ -n "$CF_WORKER_TOKEN" ]; then
-              echo "3. Syncing tunnel to Cloudflare Worker router..."
-              SYNC_RES=$(curl -s -w "\n%{http_code}" -X POST "${CF_WORKER_URL%/}/update" \
-                -H "Authorization: Bearer $CF_WORKER_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "{\"url\": \"$TUNNEL_URL\", \"port\": 3080}")
-              HTTP_CODE=$(echo "$SYNC_RES" | tail -n 1)
-              BODY=$(echo "$SYNC_RES" | head -n -1)
-              if [ "$HTTP_CODE" -eq 200 ]; then
-                echo "✅ Successfully synced to Cloudflare Worker Router."
-                echo "### 🚀 **Fixed Portal URL**: [$CF_WORKER_URL]($CF_WORKER_URL)" >> $GITHUB_STEP_SUMMARY
-              else
-                echo "⚠️ Failed to sync to Cloudflare Worker (HTTP $HTTP_CODE): $BODY"
-              fi
-            fi
-          else
-            echo "⚠️ Cloudflare tunnel startup timed out."
-          fi
-          echo "=========================================================================="
-          echo ""
-
-          echo "4. Starting DeepSeek Harness on native port 3080..."
-          dsh web --port 3080
+          chmod +x ./start.sh
+          ./start.sh

@@ -1,25 +1,32 @@
 # DSH-Antigravity-Action
 
 > 🚀 **DeepSeek Harness 云端全自动部署与 GitHub Action 运行环境**  
-> 集成 Google Cloud Code (Antigravity) 顶级模型适配器、实时额度监控看板、Token 用量与前缀缓存统计、Google Grounding 网页搜索、AI 生图以及 Cloudflare Tunnel 全自动公网穿透路由。
+> 集成 Google Cloud Code (Antigravity) 顶级模型适配器、实时额度监控看板、Token 用量与前缀缓存统计、Google Grounding 网页搜索、AI 生图、移动端响应式 UI 适配、A/B 槽崩溃自愈守护以及 Cloudflare Tunnel 全自动公网穿透路由。
 
 ---
 
 ## 🌟 核心特性与插件套件
 
-本项目为 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 官方客户端在 GitHub Actions 云端环境的一键部署方案，内置全套开箱即用的 Antigravity 插件扩展：
+本项目为 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 官方客户端在 GitHub Actions 云端环境的一键部署方案，内置全套开箱即用的 Antigravity 插件扩展与生产级运维能力：
 
 ```mermaid
 graph TD
-    User([用户浏览器 / 移动端]) -->|HTTPS| CF[Cloudflare Tunnel / Worker]
+    User([用户浏览器 / 手机移动端]) -->|HTTPS| CF[Cloudflare Tunnel / Worker]
     CF --> DSH[DeepSeek Harness Web Server :3080]
     
-    subgraph DSH Plugins Suite
+    subgraph DSH Plugins & Runtime Suite
         DSH --> LLM[dsh-llm-antigravity]
         DSH --> Search[dsh-web-search-antigravity]
         DSH --> Selector[dsh-web-search-selector]
         DSH --> ImgGen[dsh-image-gen-antigravity]
         DSH --> Tunnel[dsh-cloudflare-tunnel]
+        DSH --> Mobile[dsh-mobile-nav / 移动端UI适配]
+        DSH --> FailSoft[dsh-fail-soft / 故障隔离]
+    end
+    
+    subgraph A/B Self-Healing Guard
+        Start[start.sh 启动守护] -->|健康监控 15s| SlotA[Slot A 稳定快照]
+        Start -.->|崩溃自动回滚| DSH
     end
     
     LLM --> GoogleGCC[Google Cloud Code Gemini API]
@@ -39,20 +46,26 @@ graph TD
 - **前缀缓存与 Thought Signature 稳定中继**：
   - 精确维持多轮 Function Call 过程中的 `thoughtSignature` 连续性，最大化命中服务端前缀缓存。
 
-### 2. 🔍 `dsh-web-search-antigravity` & `dsh-web-search-selector` (联网搜索套件)
+### 2. 📱 `dsh-mobile-nav` (移动端触屏专属响应式适配)
+- **视口自适应与抽屉化**：在窄屏设备（<1024px）下自动将桌面三栏网格重构为适合单手操作的会话流，侧边栏化身平滑滑入的抽屉（Drawer）。
+- **状态栏与安全区避让**：原生适配 iPhone 刘海与 Android 手势条（`env(safe-area-inset)`），深浅色主题动态同步 `theme-color`。
+- **长会话透明压缩**：Node 宿主端自动对大体积 JSON 响应启用 Brotli/Gzip 压缩，显著提升手机网络加载速度。
+
+### 3. 🛡️ A/B 槽守护自愈与 `dsh-fail-soft` (防崩溃机制)
+- **A/B 槽位快照与自动回滚 (`start.sh`)**：自动维护 Slot A 稳定快照，启动期进行 15 秒健康判定。若 Agent 自我修改导致启动崩溃，毫秒级自动回滚至稳定配置，保障服务永不下线。
+- **运行时故障软隔离 (`dsh-fail-soft`)**：捕获未处理的 Promise 拒绝与异常，防止单点插件异常击穿 Node.js 进程。
+- **Action 工作流解耦架构**：将生命周期逻辑与 `.github/workflows/dsh.yml` 解耦，Agent 在 Action 内部拥有完全的脚本修改权限，免受 GitHub workflows 权限限制。
+
+### 4. 🔍 `dsh-web-search-antigravity` & `dsh-web-search-selector` (联网搜索套件)
 - 基于 Google 官方 Grounding 搜索接口，为 Agent 提供实时权威的网络信息检索。
 - 搜索源自由切换插件，支持在 DeepSeek 官方搜索与 Google Antigravity 搜索间随时切换。
 
-### 3. 🎨 `dsh-image-gen-antigravity` (AI 图像生成)
-- 基于 `gemini-3.1-flash-image` 接口，支持 1:1、16:9、9:16、4:3、3:4、3:2、2:3 等多种构图比例图像生成。
-- 自动生成静态资源并直接渲染在 WebUI 会话聊天流中。
+### 5. 🎨 `dsh-image-gen-antigravity` (AI 图像生成)
+- 基于 `gemini-3.1-flash-image` 接口，支持多种构图比例图像生成并在聊天流中即时渲染。
 
-### 4. 🚇 `dsh-cloudflare-tunnel` (公网安全穿透)
-- 启动即自动建立 Cloudflare Quick Tunnel，免公网 IP、免端口映射、全链路 HTTPS 安全加密。
-- 自动将公网临时隧道地址静默同步至 Cloudflare Worker 动态路由，支持使用固定的二级域名稳定访问。
-
-### 5. 🔓 `unlock-dsh.mjs` (深度解禁补丁)
-- 自动修复云端 Linux 环境下的 `credentials.yaml` 严格权限检查（0600）、Schema 校验与本地宿主安全沙箱限制。
+### 6. 🚇 `dsh-cloudflare-tunnel` (公网安全穿透)
+- 启动即自动建立 Cloudflare Quick Tunnel，全链路 HTTPS 安全加密。
+- 自动将公网临时隧道地址静默同步至 Cloudflare Worker 动态路由。
 
 ---
 
@@ -80,8 +93,10 @@ graph TD
 ```text
 .
 ├── .github/workflows/
-│   └── dsh.yml                   # GitHub Action 主运行工作流定义
+│   └── dsh.yml                   # GitHub Action 轻量不可变引导工作流
 ├── plugins/
+│   ├── dsh-mobile-nav/           # 移动端响应式与抽屉化适配插件
+│   ├── dsh-fail-soft/            # 故障软隔离与全局异常捕获插件
 │   ├── dsh-llm-antigravity/       # Antigravity LLM 核心驱动与额度/用量看板
 │   ├── dsh-web-search-antigravity/# Google Grounding 联网搜索插件
 │   ├── dsh-web-search-selector/   # 搜索源切换器插件
@@ -91,6 +106,7 @@ graph TD
 ├── cloudflare-worker-proxy.js    # Cloudflare Worker 高性能流式反向代理
 ├── cordis.patch.yml              # DSH Web Profile 插件注册编排文件
 ├── unlock-dsh.mjs                # DSH 运行环境深度解禁与权限修补脚本
+├── start.sh                      # 统一生命周期管理、A/B 槽自愈守护与启动器
 └── README.md                     # 项目说明文档
 ```
 

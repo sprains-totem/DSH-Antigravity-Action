@@ -1,5 +1,11 @@
 # Cordis patch layer for DSH web profile
 - insert:
+    - id: fail-soft
+      name: dsh-fail-soft
+
+    - id: dsh-mobile-nav
+      name: "@dsh-external/dsh-mobile-nav"
+
     - id: llm-antigravity
       name: dsh-llm-antigravity
       config:
