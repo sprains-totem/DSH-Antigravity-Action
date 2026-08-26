@@ -44,6 +44,7 @@ snapshot_to_slot_a() {
   mkdir -p "$SLOT_A_DIR"
   [ -f "cordis.patch.yml" ] && cp "cordis.patch.yml" "$SLOT_A_DIR/cordis.patch.yml"
   [ -f "unlock-dsh.mjs" ] && cp "unlock-dsh.mjs" "$SLOT_A_DIR/unlock-dsh.mjs"
+  [ -f "AGENTS.md" ] && cp "AGENTS.md" "$SLOT_A_DIR/AGENTS.md"
   if [ -d "plugins" ]; then
     rm -rf "$SLOT_A_DIR/plugins"
     cp -r "plugins" "$SLOT_A_DIR/plugins"
@@ -59,6 +60,10 @@ rollback_from_slot_a() {
   fi
   if [ -f "$SLOT_A_DIR/unlock-dsh.mjs" ]; then
     cp "$SLOT_A_DIR/unlock-dsh.mjs" "unlock-dsh.mjs"
+  fi
+  if [ -f "$SLOT_A_DIR/AGENTS.md" ]; then
+    cp "$SLOT_A_DIR/AGENTS.md" "AGENTS.md"
+    cp "$SLOT_A_DIR/AGENTS.md" "${DSH_HOME_DIR}/AGENTS.md"
   fi
   if [ -d "$SLOT_A_DIR/plugins" ]; then
     rm -rf "plugins"
@@ -149,6 +154,14 @@ agent-default-model:
   provider: antigravity
   model: gemini-3.7-flash-high
 EOF
+  fi
+
+  # 7. 同步并注入 Harness 全局指令规范 (~/.dsh/AGENTS.md)
+  if [ -f "AGENTS.md" ]; then
+    cp "AGENTS.md" "${DSH_HOME_DIR}/AGENTS.md"
+    if [ -d ".." ] && [ -w ".." ]; then
+      cp "AGENTS.md" "../AGENTS.md" 2>/dev/null || true
+    fi
   fi
 }
 
