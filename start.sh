@@ -76,10 +76,30 @@ echo "==========================================================================
 echo "📦 [3/5] 部署插件套件 (移动端UI / Antigravity / Cloudflare / Fail-Soft)..."
 echo "=========================================================================="
 deploy_current_profile() {
-  # 1. 部署所有 plugins 到 web profile
+  mkdir -p "$PROFILE_WEB_DIR/plugins" "$PROFILE_WEB_DIR/node_modules"
+  
+  # 1. 部署所有 plugins 到 web profile 及 node_modules
   if [ -d "plugins" ]; then
-    cp -r plugins/* "$PROFILE_WEB_DIR/plugins/"
-    cp -r plugins/* "$PROFILE_WEB_DIR/node_modules/"
+    for p in plugins/*; do
+      [ -d "$p" ] || continue
+      pname=$(basename "$p")
+      
+      # 复制到 web plugins 目录
+      cp -rf "$p" "$PROFILE_WEB_DIR/plugins/"
+      
+      # 复制到 web node_modules 目录
+      cp -rf "$p" "$PROFILE_WEB_DIR/node_modules/"
+      
+      # 针对 scoped package (@dsh-external/dsh-mobile-nav) 建立 scope 路径映射
+      if [ "$pname" = "dsh-mobile-nav" ]; then
+        mkdir -p "$PROFILE_WEB_DIR/node_modules/@dsh-external"
+        cp -rf "$p" "$PROFILE_WEB_DIR/node_modules/@dsh-external/dsh-mobile-nav"
+        if [ -d "/usr/local/lib/node_modules" ]; then
+          sudo mkdir -p "/usr/local/lib/node_modules/@dsh-external"
+          sudo cp -rf "$p" "/usr/local/lib/node_modules/@dsh-external/dsh-mobile-nav"
+        fi
+      fi
+    done
   fi
 
   # 2. 部署 cordis.patch.yml
@@ -162,12 +182,12 @@ echo "==========================================================================
 echo "🛡️ [5/5] 启动带 A/B 槽守护与自动回滚的 DSH Web 服务..."
 echo "=========================================================================="
 
-# 启动 DSH Web 进程并进行启动期健康检测
+# 启动 DSH Web 进程并进行启动期健康检测与持续运行
 run_dsh_with_guardian() {
   echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
   
-  # 后台启动 dsh web 以便进行 15 秒的崩溃监控
-  dsh web --port "${DSH_PORT}" > /tmp/dsh_runtime.log 2>&1 &
+  # 启动 dsh web，同时打入控制台与日志文件
+  dsh web --port "${DSH_PORT}" 2>&1 | tee /tmp/dsh_runtime.log &
   DSH_PID=$!
 
   # 监控启动阶段（15秒健康窗口）
@@ -181,9 +201,9 @@ run_dsh_with_guardian() {
   done
 
   if [ "$BOOT_CRASH" = true ]; then
-    echo "❌ 检测到 DSH 启动崩溃 (Exit Code 异常)！"
-    echo "--- 最近 20 行崩溃日志 ---"
-    tail -n 20 /tmp/dsh_runtime.log || true
+    echo "❌ 检测到 DSH 启动崩溃！"
+    echo "--- 最近 30 行崩溃日志 ---"
+    tail -n 30 /tmp/dsh_runtime.log || true
     echo "---------------------------"
     
     # 执行 A/B 槽自愈回滚
@@ -197,8 +217,12 @@ run_dsh_with_guardian() {
     # 晋升为新的稳定快照 Slot A
     snapshot_to_slot_a
     
-    # 阻塞等待 DSH 进程运行，如果后续退出则输出日志
+    # 持续等待 DSH 进程运行；若退出则记录退出状态
+    set +e
     wait "$DSH_PID"
+    EXIT_CODE=$?
+    echo "DSH 进程已退出 (Exit Code $EXIT_CODE)。"
+    exit $EXIT_CODE
   fi
 }
 
