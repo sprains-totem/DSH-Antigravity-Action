@@ -1,6 +1,7 @@
 import { h, VNode, Fragment } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { store } from '../store/state';
+import { t, getLocale, setLocale as setI18nLocale, subscribeLocale } from '../i18n';
 import {
   CloseIcon,
   CpuIcon,
@@ -89,7 +90,25 @@ export function SettingsSheet({
 
   useEffect(() => {
     loadAllGlobalSettings();
+    if (isOpen) {
+      fetchAntigravityQuota();
+      fetchAntigravityUsage();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    const unsub = subscribeLocale(() => {
+      setLocaleState(getLocale());
+    });
+    return unsub;
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'plugins') {
+      fetchAntigravityQuota();
+      fetchAntigravityUsage();
+    }
+  }, [activeTab]);
 
   const loadAllGlobalSettings = async () => {
     try {
@@ -97,23 +116,34 @@ export function SettingsSheet({
       if (res && Array.isArray(res.namespaces)) {
         setRawNamespaces(res.namespaces);
 
-        for (const ns of res.namespaces) {
-          const val = ns.user || ns.value || ns.base || {};
-          if (ns.ns === 'agent-default-model') {
+        for (const item of res.namespaces) {
+          const ns = item.ns || item.name || item.id || '';
+          const val = item.user || item.value || item.base || {};
+          if (ns === 'agent-default-model') {
             if (val.provider) setDefaultProvider(val.provider);
             if (val.model) setDefaultModel(val.model);
             if (val.reasoningEffort) setReasoningEffort(val.reasoningEffort);
-          } else if (ns.ns === 'permission') {
+          } else if (ns === 'permission') {
             if (val.defaultPreset) setDefaultPreset(val.defaultPreset);
-          } else if (ns.ns === 'agent-loop') {
+          } else if (ns === 'agent-loop') {
             if (val.maxParallelToolCalls) setMaxParallelTools(val.maxParallelToolCalls);
-          } else if (ns.ns === 'shell') {
+          } else if (ns === 'shell') {
             if (val.timeoutMs) setShellTimeout(val.timeoutMs);
-          } else if (ns.ns === 'locale') {
-            if (val.locale) setLocaleState(val.locale);
-          } else if (ns.ns === 'ui-theme') {
-            if (val.theme) setThemeState(val.theme);
-          } else if (ns.ns === 'llm-antigravity') {
+          } else if (ns === 'locale') {
+            if (val.locale) {
+              setLocaleState(val.locale);
+              setI18nLocale(val.locale as any);
+            }
+          } else if (ns === 'ui-theme') {
+            if (val.theme) {
+              setThemeState(val.theme);
+              if (val.theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+              } else {
+                document.documentElement.removeAttribute('data-theme');
+              }
+            }
+          } else if (ns === 'llm-antigravity' || ns === 'dsh-llm-antigravity') {
             if (val.baseURL) setDraftBaseUrl(val.baseURL);
           }
         }
@@ -201,7 +231,7 @@ export function SettingsSheet({
   };
 
   const clearAntigravityUsage = async () => {
-    if (!confirm('确定清空所有 Antigravity 历史调用统计记录吗？')) return;
+    if (!confirm(t('clearUsageConfirm'))) return;
     setClearingUsage(true);
     try {
       await fetch('/api/antigravity/usage', { method: 'DELETE' });
@@ -248,7 +278,7 @@ export function SettingsSheet({
 
   const handleLocaleChange = (newLoc: string) => {
     setLocaleState(newLoc);
-    localStorage.setItem('dsh_mobile_locale', newLoc);
+    setI18nLocale(newLoc as any);
     updateNamespace('locale', { locale: newLoc });
   };
 
@@ -282,7 +312,6 @@ export function SettingsSheet({
 
   const handleReasoningEffortChange = async (effort: string) => {
     setReasoningEffort(effort);
-    // If current model is a Gemini 3.7 / 3.6 tiered model, map to corresponding thinking tier
     let targetModel = defaultModel;
     if (defaultModel.startsWith('gemini-3.7-flash-')) {
       targetModel = `gemini-3.7-flash-${effort}`;
@@ -342,8 +371,8 @@ export function SettingsSheet({
     if (!sec || sec <= 0) return '即将重置';
     const hrs = Math.floor(sec / 3600);
     const mins = Math.floor((sec % 3600) / 60);
-    if (hrs > 0) return `${hrs}小时 ${mins}分`;
-    return `${mins}分钟`;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    return `${mins}m`;
   };
 
   // Generate live YAML preview of settings
@@ -381,16 +410,16 @@ export function SettingsSheet({
         <div class="sheet-header">
           <div class="flex items-center gap-2">
             <span style="font-size: 18px;">⚙️</span>
-            <span class="sheet-title">系统全局设置 (Global Settings)</span>
+            <span class="sheet-title">{t('settingsTitle')}</span>
             {savingNs && <LoaderIcon size={14} className="text-accent" />}
             {savedTip && (
               <span class="status-badge completed" style="font-size: 11px;">
                 <CheckCircleIcon size={11} />
-                <span>已同步</span>
+                <span>{t('saved')}</span>
               </span>
             )}
           </div>
-          <button class="icon-btn" onClick={onClose} aria-label="关闭设置">
+          <button class="icon-btn" onClick={onClose} aria-label={t('close')}>
             <CloseIcon size={20} />
           </button>
         </div>
@@ -401,95 +430,94 @@ export function SettingsSheet({
             class={`settings-tab-btn ${activeTab === 'general' ? 'active' : ''}`}
             onClick={() => setActiveTab('general')}
           >
-            🛠️ 通用系统
+            ⚙️ {t('tabGeneral')}
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'models' ? 'active' : ''}`}
             onClick={() => setActiveTab('models')}
           >
-            🧠 默认模型
+            🤖 {t('tabModels')}
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'plugins' ? 'active' : ''}`}
             onClick={() => setActiveTab('plugins')}
           >
-            🔌 插件管理
+            🔌 {t('tabPlugins')}
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'yaml' ? 'active' : ''}`}
             onClick={() => setActiveTab('yaml')}
           >
-            📄 YAML 配置
+            📜 {t('tabYaml')}
           </button>
         </div>
 
-        {/* Tab Content */}
         <div class="sheet-content">
-          {/* ================= TAB 1: 通用设置 ================= */}
+          {/* ================= TAB 1: 常规设置 ================= */}
           {activeTab === 'general' && (
             <div>
-              {/* Theme */}
+              {/* Theme Settings */}
               <div class="settings-section">
                 <div class="settings-section-title">
                   <SparklesIcon size={14} />
-                  <span>外观与主题 (Theme)</span>
+                  <span>{t('appearance')}</span>
                 </div>
                 <div class="settings-card">
                   {[
-                    { id: 'dark', name: '🌙 暗黑深色 (Dark)', desc: 'OLED 极夜纯黑配色，省电护眼' },
-                    { id: 'light', name: '☀️ 清新明亮 (Light)', desc: '经典白亮高对比度，户外阅读更清晰' },
-                  ].map((item) => (
+                    { id: 'dark', name: t('themeDark'), desc: t('themeDarkDesc') },
+                    { id: 'light', name: t('themeLight'), desc: t('themeLightDesc') },
+                  ].map((th) => (
                     <div
-                      key={item.id}
+                      key={th.id}
                       class="settings-row"
-                      onClick={() => handleThemeChange(item.id)}
+                      onClick={() => handleThemeChange(th.id)}
                     >
                       <div>
-                        <div class="settings-row-label">{item.name}</div>
-                        <div class="settings-row-desc">{item.desc}</div>
+                        <div class="settings-row-label">{th.name}</div>
+                        <div class="settings-row-desc">{th.desc}</div>
                       </div>
-                      {theme === item.id && <CheckIcon size={16} className="text-accent" />}
+                      {theme === th.id && <CheckIcon size={16} className="text-accent" />}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Language */}
+              {/* Language Settings */}
               <div class="settings-section">
                 <div class="settings-section-title">
-                  <span>🌐 界面语言 (Language)</span>
+                  <span>🌐 {t('language')}</span>
                 </div>
                 <div class="settings-card">
                   {[
-                    { id: 'zh-CN', name: '🇨🇳 简体中文 (Chinese)', desc: '默认界面语言' },
-                    { id: 'en-US', name: '🇺🇸 English (英文)', desc: 'English UI Localization' },
-                  ].map((item) => (
+                    { id: 'zh-CN', name: t('langZh'), desc: '简体中文界面' },
+                    { id: 'en-US', name: t('langEn'), desc: 'English interface' },
+                  ].map((loc) => (
                     <div
-                      key={item.id}
+                      key={loc.id}
                       class="settings-row"
-                      onClick={() => handleLocaleChange(item.id)}
+                      onClick={() => handleLocaleChange(loc.id)}
                     >
                       <div>
-                        <div class="settings-row-label">{item.name}</div>
-                        <div class="settings-row-desc">{item.desc}</div>
+                        <div class="settings-row-label">{loc.name}</div>
+                        <div class="settings-row-desc">{loc.desc}</div>
                       </div>
-                      {locale === item.id && <CheckIcon size={16} className="text-accent" />}
+                      {locale === loc.id && <CheckIcon size={16} className="text-accent" />}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Default Permissions */}
+              {/* Default Permission Preset */}
               <div class="settings-section">
                 <div class="settings-section-title">
                   <ShieldIcon size={14} />
-                  <span>全局默认沙箱权限 (Permission Preset)</span>
+                  <span>{t('defaultPermPreset')}</span>
                 </div>
                 <div class="settings-card">
                   {[
-                    { id: 'danger-full-access', name: 'Full Access (完全放行 - 推荐)', desc: '完全访问文件与工具命令，无需频繁手动确认' },
-                    { id: 'workspace-write', name: 'Workspace Write (仅工作区写入)', desc: '限制在工作区读写，越界操作需单次弹窗确认' },
-                    { id: 'read-only', name: 'Read Only (只读安全)', desc: '禁止任何写操作与破坏性工具' },
+                    { id: 'danger-full-access', name: `${t('permFull')}${t('defaultSuffix')}`, desc: t('permFullDesc') },
+                    { id: 'workspace-write', name: t('permWorkspace'), desc: t('permWorkspaceDesc') },
+                    { id: 'read-only', name: t('permReadOnly'), desc: t('permReadOnlyDesc') },
                   ].map((item) => (
                     <div
                       key={item.id}
@@ -510,12 +538,12 @@ export function SettingsSheet({
               <div class="settings-section">
                 <div class="settings-section-title">
                   <TerminalIcon size={14} />
-                  <span>执行引擎参数 (Execution Engine)</span>
+                  <span>{t('execEngine')}</span>
                 </div>
                 <div class="settings-card">
                   <div class="settings-row" style="cursor: default;">
                     <div>
-                      <div class="settings-row-label">最大并行工具调用数</div>
+                      <div class="settings-row-label">{t('maxParallelTools')}</div>
                       <div class="settings-row-desc">agent-loop.maxParallelToolCalls</div>
                     </div>
                     <select
@@ -523,14 +551,14 @@ export function SettingsSheet({
                       value={maxParallelTools}
                       onChange={(e: any) => handleParallelToolsChange(Number(e.target.value))}
                     >
-                      <option value={5}>5 个并发</option>
-                      <option value={10}>10 个并发 (默认)</option>
-                      <option value={20}>20 个并发</option>
+                      <option value={5}>5 {t('concurrencyUnit')}</option>
+                      <option value={10}>10 {t('concurrencyUnit')}{t('defaultSuffix')}</option>
+                      <option value={20}>20 {t('concurrencyUnit')}</option>
                     </select>
                   </div>
                   <div class="settings-row" style="cursor: default;">
                     <div>
-                      <div class="settings-row-label">Shell 命令执行超时</div>
+                      <div class="settings-row-label">{t('shellTimeout')}</div>
                       <div class="settings-row-desc">shell.timeoutMs</div>
                     </div>
                     <select
@@ -538,10 +566,10 @@ export function SettingsSheet({
                       value={shellTimeout}
                       onChange={(e: any) => handleShellTimeoutChange(Number(e.target.value))}
                     >
-                      <option value={30000}>30 秒</option>
-                      <option value={60000}>60 秒 (默认)</option>
-                      <option value={120000}>120 秒</option>
-                      <option value={300000}>300 秒</option>
+                      <option value={30000}>30 {t('secondsUnit')}</option>
+                      <option value={60000}>60 {t('secondsUnit')}{t('defaultSuffix')}</option>
+                      <option value={120000}>120 {t('secondsUnit')}</option>
+                      <option value={300000}>300 {t('secondsUnit')}</option>
                     </select>
                   </div>
                 </div>
@@ -555,18 +583,18 @@ export function SettingsSheet({
               <div class="settings-section">
                 <div class="settings-section-title">
                   <CpuIcon size={14} />
-                  <span>新建会话默认 Agent 模型 (Default Model)</span>
+                  <span>{t('defaultModelTitle')}</span>
                 </div>
                 <div class="settings-card">
                   {[
                     { id: 'gemini-3.7-flash-high', prov: 'antigravity', name: 'Gemini 3.7 Flash High', desc: '深度思考推理旗舰模型（推荐）' },
                     { id: 'gemini-3.7-flash-medium', prov: 'antigravity', name: 'Gemini 3.7 Flash Medium', desc: '中等思考深度，平衡性能与时延' },
                     { id: 'gemini-3.7-flash-low', prov: 'antigravity', name: 'Gemini 3.7 Flash Low', desc: '极速低思考预算，适合轻量快速任务' },
-                    { id: 'gemini-2.5-pro', prov: 'antigravity', name: 'Gemini 2.5 Pro', desc: '百万上下文窗口，复杂代码重构' },
-                    { id: 'gemini-2.5-flash', prov: 'antigravity', name: 'Gemini 2.5 Flash', desc: '极速低延迟快速问答' },
-                    { id: 'gemini-3-flash', prov: 'antigravity', name: 'Gemini 3 Flash', desc: '下一代极速多模态模型' },
-                    { id: 'deepseek-v4-flash', prov: 'deepseek-official', name: 'DeepSeek-V4-Flash', desc: 'DeepSeek 官方推理大模型' },
-                    { id: 'claude-sonnet-4-6', prov: 'antigravity', name: 'Claude Sonnet 4.6', desc: 'Claude 代码能力模型' },
+                    { id: 'gemini-pro-agent', prov: 'antigravity', name: 'Gemini Pro Agent', desc: '百万上下文窗口，复杂代码与长程任务' },
+                    { id: 'gemini-3.6-flash-high', prov: 'antigravity', name: 'Gemini 3.6 Flash High', desc: '高性能推理模型' },
+                    { id: 'gemini-3.1-flash-lite', prov: 'antigravity', name: 'Gemini 3.1 Flash Lite', desc: '轻量极速多模态模型' },
+                    { id: 'claude-sonnet-4-6', prov: 'antigravity', name: 'Claude Sonnet 4.6', desc: 'Claude 顶尖编程与架构分析模型' },
+                    { id: 'gpt-oss-120b-medium', prov: 'antigravity', name: 'GPT-OSS 120B Medium', desc: '开源百亿级代码推理模型' },
                   ].map((m) => {
                     const isSelected = defaultModel === m.id && defaultProvider === m.prov;
                     return (
@@ -588,13 +616,13 @@ export function SettingsSheet({
 
               <div class="settings-section">
                 <div class="settings-section-title">
-                  <span>🧠 思考深度档位 (Reasoning Effort)</span>
+                  <span>{t('thinkingTierTitle')}</span>
                 </div>
                 <div class="settings-card">
                   {[
-                    { id: 'high', name: 'High (深度思考 - 推荐)', desc: '充分展开思维链，最强逻辑与代码推理（路由至 gemini-3.7-flash-high）' },
-                    { id: 'medium', name: 'Medium (中等思考)', desc: '平衡思考深度与响应速度（路由至 gemini-3.7-flash-medium）' },
-                    { id: 'low', name: 'Low (快速生成)', desc: '缩减思考过程，追求首字响应时延（路由至 gemini-3.7-flash-low）' },
+                    { id: 'high', name: t('thinkingHigh'), desc: t('thinkingHighDesc') },
+                    { id: 'medium', name: t('thinkingMedium'), desc: t('thinkingMediumDesc') },
+                    { id: 'low', name: t('thinkingLow'), desc: t('thinkingLowDesc') },
                   ].map((eff) => (
                     <div
                       key={eff.id}
@@ -617,16 +645,16 @@ export function SettingsSheet({
           {activeTab === 'plugins' && (
             <div style="display: flex; flex-direction: column; gap: 10px;">
               <div class="settings-section-title" style="margin-bottom: 4px;">
-                <span>🔌 已注册插件配置列表 (Plugin Cards)</span>
+                <span>{t('pluginsListTitle')}</span>
               </div>
 
               {rawNamespaces.length === 0 ? (
                 <div style="font-size: 12px; color: var(--text-muted); padding: 20px; text-align: center;">
-                  正在自省发现插件配置...
+                  {t('discoveringPlugins')}
                 </div>
               ) : (
                 rawNamespaces.map((nsItem) => {
-                  const ns = nsItem.ns;
+                  const ns = nsItem.ns || nsItem.name || nsItem.id || 'unknown';
                   const isOpen = Boolean(openCards[ns]);
                   const resolvedVal = nsItem.user || nsItem.value || nsItem.base || {};
                   const stagedDraft = draftEdits[ns] || {};
@@ -670,7 +698,7 @@ export function SettingsSheet({
                             </span>
                             {isDirty && (
                               <span style="font-size: 11px; color: #f59e0b; font-weight: 500;">
-                                • 未保存修改
+                                {t('unsavedChanges')}
                               </span>
                             )}
                           </div>
@@ -699,121 +727,170 @@ export function SettingsSheet({
                                   class={`settings-tab-btn ${activePluginSubTab === 'quota' ? 'active' : ''}`}
                                   onClick={() => setActivePluginSubTab('quota')}
                                 >
-                                  📊 实时额度
+                                  {t('quotaTab')}
                                 </button>
                                 <button
                                   class={`settings-tab-btn ${activePluginSubTab === 'usage' ? 'active' : ''}`}
                                   onClick={() => setActivePluginSubTab('usage')}
                                 >
-                                  📈 用量统计
+                                  {t('usageTab')}
                                 </button>
                                 <button
                                   class={`settings-tab-btn ${activePluginSubTab === 'valuation' ? 'active' : ''}`}
                                   onClick={() => setActivePluginSubTab('valuation')}
                                 >
-                                  💰 额度估算
+                                  {t('valuationTab')}
                                 </button>
                                 <button
                                   class={`settings-tab-btn ${activePluginSubTab === 'config' ? 'active' : ''}`}
                                   onClick={() => setActivePluginSubTab('config')}
                                 >
-                                  ⚙️ 凭据配置
+                                  {t('configTab')}
                                 </button>
                               </div>
 
-                              {activePluginSubTab === 'quota' && (
-                                <div style="display: flex; flex-direction: column; gap: 10px;">
-                                  <div class="flex items-center justify-between">
-                                    <span style="font-size: 12px; color: var(--text-muted);">
-                                      项目: {quotaData?.projectId || '自动识别'} • 权益: {quotaData?.tier || 'Pro'}
-                                    </span>
-                                    <button
-                                      class="chip-btn"
-                                      onClick={() => fetchAntigravityQuota(true)}
-                                      disabled={loadingQuota}
-                                      style="font-size: 11px; padding: 2px 8px;"
-                                    >
-                                      {loadingQuota ? <LoaderIcon size={12} /> : '🔄 刷新'}
-                                    </button>
-                                  </div>
+                              {activePluginSubTab === 'quota' && (() => {
+                                let limit5h: any = null;
+                                let limitWeekly: any = null;
+                                if (quotaData && Array.isArray(quotaData.groups)) {
+                                  for (const g of quotaData.groups) {
+                                    if (Array.isArray(g.buckets)) {
+                                      for (const b of g.buckets) {
+                                        if (b.window === '5h' || b.bucketId?.includes('5h')) limit5h = b;
+                                        if (b.window === 'weekly' || b.bucketId?.includes('weekly')) limitWeekly = b;
+                                      }
+                                    }
+                                  }
+                                  if (!limit5h && quotaData.groups[0]?.buckets?.[1]) limit5h = quotaData.groups[0].buckets[1];
+                                  if (!limit5h && quotaData.groups[0]?.buckets?.[0]) limit5h = quotaData.groups[0].buckets[0];
+                                  if (!limitWeekly && quotaData.groups[0]?.buckets?.[0]) limitWeekly = quotaData.groups[0].buckets[0];
+                                }
 
-                                  {quotaData?.limit5h && (
-                                    <div>
-                                      <div class="flex items-center justify-between" style="font-size: 12px;">
-                                        <span style="color: var(--text-secondary);">5小时限额剩余</span>
-                                        <span style="font-weight: 700; color: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)';">
-                                          {quotaData.limit5h.pctRemaining}% ({formatSeconds(quotaData.limit5h.resetsInSeconds)}后重置)
-                                        </span>
-                                      </div>
-                                      <div class="quota-progress-track">
-                                        <div
-                                          class="quota-progress-fill"
-                                          style={{
-                                            width: `${Math.max(0, Math.min(100, quotaData.limit5h.pctRemaining))}%`,
-                                            background: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)',
-                                          }}
-                                        />
-                                      </div>
+                                return (
+                                  <div style="display: flex; flex-direction: column; gap: 10px;">
+                                    <div class="flex items-center justify-between">
+                                      <span style="font-size: 12px; color: var(--text-muted);">
+                                        {t('project')}: {quotaData?.projectId || t('autoDetect')} • {t('tier')}: {quotaData?.tier || 'Pro'}
+                                      </span>
+                                      <button
+                                        class="chip-btn"
+                                        onClick={() => fetchAntigravityQuota(true)}
+                                        disabled={loadingQuota}
+                                        style="font-size: 11px; padding: 2px 8px;"
+                                      >
+                                        {loadingQuota ? <LoaderIcon size={12} /> : `🔄 ${t('refresh')}`}
+                                      </button>
                                     </div>
-                                  )}
 
-                                  {Array.isArray(quotaData?.models) && (
-                                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                                      {quotaData.models.map((m: any, idx: number) => (
-                                        <div key={idx} style="background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);">
-                                          <div class="flex items-center justify-between" style="font-size: 11px;">
-                                            <span style="color: var(--text-primary);">{m.modelId || m.name}</span>
-                                            <span style="color: var(--accent-primary); font-weight: 600;">{m.pctRemaining ?? 100}%</span>
-                                          </div>
-                                          <div class="quota-progress-track" style="margin: 3px 0 1px;">
-                                            <div
-                                              class="quota-progress-fill"
-                                              style={{
-                                                width: `${Math.max(0, Math.min(100, m.pctRemaining ?? 100))}%`,
-                                                background: (m.pctRemaining ?? 100) < 20 ? '#ef4444' : '#10b981',
-                                              }}
-                                            />
-                                          </div>
+                                    {limit5h && (
+                                      <div style="background: var(--bg-tertiary); padding: 10px; border-radius: var(--radius-md);">
+                                        <div class="flex items-center justify-between" style="font-size: 12px;">
+                                          <span style="color: var(--text-primary); font-weight: 600;">{limit5h.displayName || t('fiveHourRemaining')}</span>
+                                          <span style={{ fontWeight: 700, color: (limit5h.remainingPercent ?? 100) < 20 ? '#ef4444' : 'var(--accent-primary)' }}>
+                                            {limit5h.remainingPercent ?? 100}% ({formatSeconds(limit5h.resetInSeconds)}{t('resetsIn')})
+                                          </span>
                                         </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
+                                        <div class="quota-progress-track" style="margin-top: 6px;">
+                                          <div
+                                            class="quota-progress-fill"
+                                            style={{
+                                              width: `${Math.max(0, Math.min(100, limit5h.remainingPercent ?? 100))}%`,
+                                              background: (limit5h.remainingPercent ?? 100) < 20 ? '#ef4444' : 'var(--accent-primary)',
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
 
-                              {activePluginSubTab === 'usage' && (
-                                <div>
-                                  <div class="flex items-center justify-between mb-2">
-                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">调用与缓存统计</span>
-                                    <div class="flex items-center gap-2">
-                                      <button class="chip-btn" onClick={fetchAntigravityUsage} disabled={loadingUsage} style="font-size: 11px; padding: 2px 6px;">
-                                        刷新
-                                      </button>
-                                      <button class="chip-btn" onClick={clearAntigravityUsage} disabled={clearingUsage} style="font-size: 11px; padding: 2px 6px; color: #ef4444;">
-                                        清空
-                                      </button>
+                                    {limitWeekly && (
+                                      <div style="background: var(--bg-tertiary); padding: 10px; border-radius: var(--radius-md);">
+                                        <div class="flex items-center justify-between" style="font-size: 12px;">
+                                          <span style="color: var(--text-primary); font-weight: 600;">{limitWeekly.displayName || t('weeklyRemaining')}</span>
+                                          <span style={{ fontWeight: 700, color: (limitWeekly.remainingPercent ?? 100) < 20 ? '#ef4444' : '#10b981' }}>
+                                            {limitWeekly.remainingPercent ?? 100}% ({formatSeconds(limitWeekly.resetInSeconds)}{t('resetsIn')})
+                                          </span>
+                                        </div>
+                                        <div class="quota-progress-track" style="margin-top: 6px;">
+                                          <div
+                                            class="quota-progress-fill"
+                                            style={{
+                                              width: `${Math.max(0, Math.min(100, limitWeekly.remainingPercent ?? 100))}%`,
+                                              background: (limitWeekly.remainingPercent ?? 100) < 20 ? '#ef4444' : '#10b981',
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {Array.isArray(quotaData?.models) && quotaData.models.length > 0 && (
+                                      <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                                        {quotaData.models.map((m: any, idx: number) => {
+                                          const pct = typeof m.remainingPercent === 'number' ? m.remainingPercent : (typeof m.remainingFraction === 'number' ? Math.round(m.remainingFraction * 100) : 100);
+                                          return (
+                                            <div key={idx} style="background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);">
+                                              <div class="flex items-center justify-between" style="font-size: 11px;">
+                                                <span style="color: var(--text-primary); font-weight: 500;">{m.displayName || m.id || m.name}</span>
+                                                <span style={{ color: pct < 20 ? '#ef4444' : 'var(--accent-primary)', fontWeight: 600 }}>{pct}%</span>
+                                              </div>
+                                              <div class="quota-progress-track" style="margin: 3px 0 1px;">
+                                                <div
+                                                  class="quota-progress-fill"
+                                                  style={{
+                                                    width: `${Math.max(0, Math.min(100, pct))}%`,
+                                                    background: pct < 20 ? '#ef4444' : '#10b981',
+                                                  }}
+                                                />
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              {activePluginSubTab === 'usage' && (() => {
+                                const summary = usageData?.summary || usageData || {};
+                                const totalReq = summary.totalRequests ?? 0;
+                                const totalIn = summary.totalInputTokens ?? summary.totalInput ?? 0;
+                                const totalOut = summary.totalOutputTokens ?? summary.totalOutput ?? 0;
+                                const cacheRate = summary.cacheSavingsRate ?? summary.cacheHitRate ?? '0%';
+
+                                return (
+                                  <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                      <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">{t('callingAndCacheStats')}</span>
+                                      <div class="flex items-center gap-2">
+                                        <button class="chip-btn" onClick={fetchAntigravityUsage} disabled={loadingUsage} style="font-size: 11px; padding: 2px 6px;">
+                                          {t('refresh')}
+                                        </button>
+                                        <button class="chip-btn" onClick={clearAntigravityUsage} disabled={clearingUsage} style="font-size: 11px; padding: 2px 6px; color: #ef4444;">
+                                          {t('clear')}
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div class="plugin-metric-grid">
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">{t('totalRequests')}</span>
+                                        <span class="plugin-metric-value">{totalReq}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">{t('inputTokens')}</span>
+                                        <span class="plugin-metric-value">{totalIn.toLocaleString()}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">{t('outputTokens')}</span>
+                                        <span class="plugin-metric-value">{totalOut.toLocaleString()}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">{t('cacheSavingsRate')}</span>
+                                        <span class="plugin-metric-value" style="color: #10b981;">{cacheRate}</span>
+                                      </div>
                                     </div>
                                   </div>
-                                  <div class="plugin-metric-grid">
-                                    <div class="plugin-metric-box">
-                                      <span class="plugin-metric-label">调用总次数</span>
-                                      <span class="plugin-metric-value">{usageData?.totalRequests ?? 0}</span>
-                                    </div>
-                                    <div class="plugin-metric-box">
-                                      <span class="plugin-metric-label">实际输入 Tokens</span>
-                                      <span class="plugin-metric-value">{(usageData?.totalInput ?? 0).toLocaleString()}</span>
-                                    </div>
-                                    <div class="plugin-metric-box">
-                                      <span class="plugin-metric-label">实际输出 Tokens</span>
-                                      <span class="plugin-metric-value">{(usageData?.totalOutput ?? 0).toLocaleString()}</span>
-                                    </div>
-                                    <div class="plugin-metric-box">
-                                      <span class="plugin-metric-label">缓存命中率</span>
-                                      <span class="plugin-metric-value" style="color: #10b981;">{usageData?.cacheHitRate ?? '0%'}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               {activePluginSubTab === 'valuation' && (() => {
                                 // Find bucket
@@ -855,9 +932,9 @@ export function SettingsSheet({
 
                                 const modelStats: Record<string, { requests: number; inputTokens: number; outputTokens: number; reasoningTokens: number; cacheReadTokens: number }> = {};
                                 for (const rec of hist) {
-                                  const t = new Date(rec.timestamp).getTime();
-                                  if (isNaN(t)) continue;
-                                  if (t >= startMs && t <= endMs) {
+                                  const tMs = new Date(rec.timestamp).getTime();
+                                  if (isNaN(tMs)) continue;
+                                  if (tMs >= startMs && tMs <= endMs) {
                                     const m = rec.model || 'unknown';
                                     if (!modelStats[m]) {
                                       modelStats[m] = { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 };
@@ -870,266 +947,212 @@ export function SettingsSheet({
                                   }
                                 }
 
-                                let totalIn = 0;
+                                let totalGrossIn = 0;
                                 let totalOut = 0;
                                 let totalCache = 0;
-                                let totalCost = 0;
+                                let totalValuationUSD = 0;
+                                let rawValuationWithoutCache = 0;
 
-                                const modelList = Object.keys(modelStats).length > 0 ? Object.keys(modelStats) : ['gemini-3.7-flash-high'];
-                                const rows = modelList.map(mId => {
-                                  const st = modelStats[mId] || { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 };
-                                  const p = mobilePricing[mId] || { input: 0.75, output: 3.75, cache: 0.1875 };
-                                  const outWithReasoning = (st.outputTokens || 0) + (st.reasoningTokens || 0);
-                                  const cost = (st.inputTokens * p.input + outWithReasoning * p.output + st.cacheReadTokens * p.cache) / 1000000;
-                                  totalIn += st.inputTokens;
-                                  totalOut += outWithReasoning;
-                                  totalCache += st.cacheReadTokens;
-                                  totalCost += cost;
-                                  return { mId, st, p, outWithReasoning, cost };
-                                });
+                                for (const [mName, s] of Object.entries(modelStats)) {
+                                  const pr = mobilePricing[mName] || { input: 0.75, output: 3.75, cache: 0.1875 };
+                                  totalGrossIn += (s.inputTokens + s.cacheReadTokens);
+                                  totalOut += s.outputTokens;
+                                  totalCache += s.cacheReadTokens;
 
-                                const remPct = typeof bucketRemFraction === 'number' ? Math.round(bucketRemFraction * 1000) / 10 : null;
-                                const usedFraction = typeof bucketRemFraction === 'number' ? Math.max(0, 1 - bucketRemFraction) : null;
-                                const usedPct = usedFraction !== null ? Math.round(usedFraction * 1000) / 10 : null;
-
-                                let estTotalUsd: number | null = null;
-                                let estRemUsd: number | null = null;
-                                if (usedFraction !== null && usedFraction > 0.0001 && totalCost > 0) {
-                                  estTotalUsd = totalCost / usedFraction;
-                                  estRemUsd = estTotalUsd * (bucketRemFraction ?? 0);
+                                  const costWithCache = (s.inputTokens / 1e6 * pr.input) + (s.outputTokens / 1e6 * pr.output) + (s.cacheReadTokens / 1e6 * pr.cache);
+                                  const costNoCache = ((s.inputTokens + s.cacheReadTokens) / 1e6 * pr.input) + (s.outputTokens / 1e6 * pr.output);
+                                  totalValuationUSD += costWithCache;
+                                  rawValuationWithoutCache += costNoCache;
                                 }
 
-                                const formatUsd = (num: number | null) => {
-                                  if (num === null) return '—';
-                                  if (num < 0.01 && num > 0) return `$${num.toFixed(4)}`;
-                                  return `$${num.toFixed(2)}`;
-                                };
+                                const totalGrossTokens = totalGrossIn + totalOut;
+                                const cacheSaveRatio = totalGrossIn > 0 ? (totalCache / totalGrossIn * 100).toFixed(1) : '0.0';
 
                                 return (
                                   <div style="display: flex; flex-direction: column; gap: 10px;">
-                                    {/* Period Pills */}
                                     <div class="flex items-center justify-between">
-                                      <div class="flex items-center gap-1" style="background: var(--bg-tertiary); padding: 2px; border-radius: var(--radius-sm);">
+                                      <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">
+                                        {t('valuationTitle')}
+                                      </span>
+                                      <div class="flex gap-1">
                                         <button
                                           class={`chip-btn ${activeValPeriod === '5h' ? 'active' : ''}`}
-                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === '5h' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === '5h' ? '#fff' : 'var(--text-secondary)' }}
                                           onClick={() => setActiveValPeriod('5h')}
+                                          style={activeValPeriod === '5h' ? 'background: var(--accent-glass); color: var(--accent-primary);' : ''}
                                         >
-                                          5小时
+                                          {t('period5h')}
                                         </button>
                                         <button
                                           class={`chip-btn ${activeValPeriod === 'weekly' ? 'active' : ''}`}
-                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === 'weekly' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === 'weekly' ? '#fff' : 'var(--text-secondary)' }}
                                           onClick={() => setActiveValPeriod('weekly')}
+                                          style={activeValPeriod === 'weekly' ? 'background: var(--accent-glass); color: var(--accent-primary);' : ''}
                                         >
-                                          周额度
+                                          {t('periodWeekly')}
                                         </button>
                                         <button
                                           class={`chip-btn ${activeValPeriod === 'all' ? 'active' : ''}`}
-                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === 'all' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === 'all' ? '#fff' : 'var(--text-secondary)' }}
                                           onClick={() => setActiveValPeriod('all')}
+                                          style={activeValPeriod === 'all' ? 'background: var(--accent-glass); color: var(--accent-primary);' : ''}
                                         >
-                                          全部
+                                          {t('periodAll')}
                                         </button>
                                       </div>
-                                      <button class="chip-btn" onClick={() => { fetchAntigravityQuota(true); fetchAntigravityUsage(); }} style="font-size: 11px; padding: 2px 6px;">
-                                        🔄 刷新
-                                      </button>
                                     </div>
 
-                                    {/* Window info */}
-                                    <div style="font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);">
-                                      <span>倒推窗口: {new Date(startMs).toLocaleTimeString()} ~ {new Date(endMs).toLocaleTimeString()}</span>
-                                      {bucketResetTime && (
-                                        <span style="float: right;">倒计时: {formatSeconds(bucketResetInSec)}</span>
-                                      )}
-                                    </div>
-
-                                    {/* KPI cards */}
-                                    <div class="plugin-metric-grid">
-                                      <div class="plugin-metric-box">
-                                        <span class="plugin-metric-label">周期已消耗</span>
-                                        <span class="plugin-metric-value">{formatUsd(totalCost)}</span>
+                                    {/* Valuation Hero Box */}
+                                    <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12)); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 12px;">
+                                      <div class="flex items-center justify-between">
+                                        <span style="font-size: 12px; color: var(--text-secondary);">{t('estValue')}</span>
+                                        <span style="font-size: 20px; font-weight: 800; color: #10b981;">
+                                          ${totalValuationUSD.toFixed(3)}
+                                        </span>
                                       </div>
-                                      <div class="plugin-metric-box">
-                                        <span class="plugin-metric-label">额度消耗比</span>
-                                        <span class="plugin-metric-value">{usedPct !== null ? `${usedPct}%` : '—'}</span>
+                                      <div class="flex items-center justify-between mt-2 pt-2 border-t border-[rgba(255,255,255,0.06)]" style="font-size: 11px; color: var(--text-muted);">
+                                        <span>{t('grossTokens')}: {totalGrossTokens.toLocaleString()}</span>
+                                        <span>{t('savedRate')}: <strong style="color: #10b981;">{cacheSaveRatio}%</strong></span>
                                       </div>
-                                      <div class="plugin-metric-box">
-                                        <span class="plugin-metric-label">🔮 估算总额度</span>
-                                        <span class="plugin-metric-value" style="color: var(--accent-primary);">{estTotalUsd !== null ? formatUsd(estTotalUsd) : (usedPct === 0 ? '100% 完整' : '待推算')}</span>
-                                      </div>
-                                      <div class="plugin-metric-box">
-                                        <span class="plugin-metric-label">🛡️ 估算剩余可用</span>
-                                        <span class="plugin-metric-value" style="color: #10b981;">{estRemUsd !== null ? formatUsd(estRemUsd) : (usedPct === 0 ? '完全就绪' : '待推算')}</span>
-                                      </div>
-                                    </div>
-
-                                    {/* Model Pricing & Cost list */}
-                                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                                      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">各模型定价与周期折算 ($/1M)</div>
-                                      {rows.map(({ mId, st, p, outWithReasoning, cost }) => (
-                                        <div key={mId} style="background: var(--bg-tertiary); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 11px;">
-                                          <div class="flex items-center justify-between" style="font-weight: 600; margin-bottom: 4px;">
-                                            <span>{mId}</span>
-                                            <span style="color: var(--accent-primary);">{formatUsd(cost)}</span>
-                                          </div>
-                                          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; color: var(--text-muted); font-size: 10px;">
-                                            <div>
-                                              入: {(st.inputTokens || 0).toLocaleString()}
-                                              <input
-                                                type="number"
-                                                step="0.01"
-                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
-                                                value={p.input}
-                                                onInput={(e: any) => {
-                                                  const val = parseFloat(e.target.value) || 0;
-                                                  const next = { ...mobilePricing, [mId]: { ...p, input: val } };
-                                                  setMobilePricing(next);
-                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
-                                                }}
-                                              />
-                                            </div>
-                                            <div>
-                                              出+思: {outWithReasoning.toLocaleString()}
-                                              <input
-                                                type="number"
-                                                step="0.01"
-                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
-                                                value={p.output}
-                                                onInput={(e: any) => {
-                                                  const val = parseFloat(e.target.value) || 0;
-                                                  const next = { ...mobilePricing, [mId]: { ...p, output: val } };
-                                                  setMobilePricing(next);
-                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
-                                                }}
-                                              />
-                                            </div>
-                                            <div>
-                                              缓存: {(st.cacheReadTokens || 0).toLocaleString()}
-                                              <input
-                                                type="number"
-                                                step="0.001"
-                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
-                                                value={p.cache}
-                                                onInput={(e: any) => {
-                                                  const val = parseFloat(e.target.value) || 0;
-                                                  const next = { ...mobilePricing, [mId]: { ...p, cache: val } };
-                                                  setMobilePricing(next);
-                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
-                                                }}
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
                                     </div>
                                   </div>
                                 );
                               })()}
 
                               {activePluginSubTab === 'config' && (
-                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                  <div style="font-size: 12px; color: var(--text-muted);">
+                                    {t('tokenConfigTip')}
+                                  </div>
                                   <div>
-                                    <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
-                                      OAuth 2.0 Refresh Token
+                                    <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 3px;">
+                                      Refresh Token (1//...)
                                     </label>
                                     <input
                                       type="password"
-                                      class="settings-input"
-                                      placeholder="填入 Refresh Token（留空保持不变）"
+                                      class="composer-textarea"
+                                      style="width: 100%; height: 36px; min-height: 36px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px;"
+                                      placeholder="留空保持现有凭据不变"
                                       value={draftToken}
                                       onInput={(e: any) => setDraftToken(e.target.value)}
                                     />
                                   </div>
+
                                   <div>
-                                    <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
-                                      Base URL 端点
+                                    <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 3px;">
+                                      API Base URL
                                     </label>
                                     <input
                                       type="text"
-                                      class="settings-input"
+                                      class="composer-textarea"
+                                      style="width: 100%; height: 36px; min-height: 36px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px;"
+                                      placeholder="https://daily-cloudcode-pa.googleapis.com/v1internal"
                                       value={draftBaseUrl}
                                       onInput={(e: any) => setDraftBaseUrl(e.target.value)}
                                     />
                                   </div>
+
                                   <button
-                                    class="chip-btn"
-                                    style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 36px; justify-content: center;"
+                                    class="send-btn"
                                     onClick={saveAntigravityConfig}
-                                    disabled={Boolean(savingNs)}
+                                    disabled={isSavingThis}
+                                    style="width: 100%; height: 36px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; margin-top: 4px;"
                                   >
-                                    {savingNs === 'llm-antigravity' ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
-                                    <span>保存 Antigravity 凭据</span>
+                                    {isSavingThis ? <LoaderIcon size={14} /> : `💾 ${t('saveConfig')}`}
                                   </button>
                                 </div>
                               )}
                             </div>
                           ) : (
-                            /* Case B: Universal Dynamic multi-level schema fields */
-                            <div style="display: flex; flex-direction: column; gap: 10px;">
-                              {Object.keys(currentEffective).length === 0 ? (
-                                <div style="font-size: 12px; color: var(--text-muted); padding: 6px 0;">
-                                  该插件使用默认参数运行。
-                                </div>
-                              ) : (
-                                Object.entries(currentEffective).map(([key, val]) => {
-                                  const isBool = typeof val === 'boolean';
-                                  const isNum = typeof val === 'number';
+                            /* Case B: Generic Dynamic Form Generator for any other plugin */
+                            <div>
+                              {Object.entries(resolvedVal).map(([fieldKey, fieldVal]) => {
+                                const draftVal = stagedDraft[fieldKey];
+                                const effectiveVal = draftVal !== undefined ? draftVal : fieldVal;
+                                const isFieldEdited = draftVal !== undefined && draftVal !== fieldVal;
+                                const isBool = typeof fieldVal === 'boolean';
+                                const isNum = typeof fieldVal === 'number';
 
-                                  return (
-                                    <div key={key} style="display: flex; flex-direction: column; gap: 4px;">
-                                      <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">
-                                        {key}
-                                      </label>
-                                      {isBool ? (
-                                        <select
-                                          class="settings-select"
-                                          value={String(val)}
-                                          onChange={(e: any) => editCardField(ns, key, e.target.value === 'true')}
-                                        >
-                                          <option value="true">true (启用)</option>
-                                          <option value="false">false (禁用)</option>
-                                        </select>
-                                      ) : isNum ? (
-                                        <input
-                                          type="number"
-                                          class="settings-input"
-                                          value={val}
-                                          onInput={(e: any) => editCardField(ns, key, Number(e.target.value))}
-                                        />
-                                      ) : (
-                                        <input
-                                          type="text"
-                                          class="settings-input"
-                                          value={String(val || '')}
-                                          onInput={(e: any) => editCardField(ns, key, e.target.value)}
-                                        />
-                                      )}
+                                return (
+                                  <div
+                                    key={fieldKey}
+                                    style={{
+                                      display: 'flex',
+                                      flexDirection: isBool ? 'row' : 'column',
+                                      alignItems: isBool ? 'center' : 'stretch',
+                                      justifyContent: 'space-between',
+                                      padding: '8px 0',
+                                      borderBottom: '1px solid var(--border-subtle)',
+                                      gap: '6px',
+                                    }}
+                                  >
+                                    <div>
+                                      <div style="display: flex; align-items: center; gap: 4px;">
+                                        <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">
+                                          {fieldKey}
+                                        </span>
+                                        {isFieldEdited && (
+                                          <span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                                            Draft
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
-                                  );
-                                })
-                              )}
 
-                              {/* Card Footer for Save / Discard */}
+                                    {isBool ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => editCardField(ns, fieldKey, !effectiveVal)}
+                                        style={{
+                                          width: '40px',
+                                          height: '22px',
+                                          borderRadius: '11px',
+                                          background: effectiveVal ? 'var(--accent-primary)' : 'var(--border-muted)',
+                                          border: 0,
+                                          position: 'relative',
+                                          cursor: 'pointer',
+                                          transition: 'background 0.2s',
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            width: '18px',
+                                            height: '18px',
+                                            borderRadius: '50%',
+                                            background: '#ffffff',
+                                            position: 'absolute',
+                                            top: '2px',
+                                            left: effectiveVal ? '20px' : '2px',
+                                            transition: 'left 0.2s',
+                                          }}
+                                        />
+                                      </button>
+                                    ) : (
+                                      <input
+                                        type={isNum ? 'number' : 'text'}
+                                        class="composer-textarea"
+                                        style="width: 100%; height: 32px; min-height: 32px; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px;"
+                                        value={effectiveVal !== undefined ? effectiveVal : ''}
+                                        onInput={(e: any) => editCardField(ns, fieldKey, isNum ? Number(e.target.value) : e.target.value)}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+
                               {isDirty && (
-                                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
+                                <div class="flex items-center justify-end gap-2 mt-3">
                                   <button
                                     class="chip-btn"
                                     onClick={() => discardCardEdits(ns)}
-                                    disabled={isSavingThis}
-                                    style="font-size: 12px;"
+                                    style="font-size: 11px; padding: 4px 10px;"
                                   >
-                                    放弃
+                                    {t('cancel')}
                                   </button>
                                   <button
                                     class="chip-btn"
-                                    style="background: var(--accent-primary); color: #fff; border-color: transparent; font-size: 12px;"
                                     onClick={() => saveCardEdits(ns)}
                                     disabled={isSavingThis}
+                                    style="background: var(--accent-primary); color: #ffffff; font-size: 11px; padding: 4px 12px; border-color: transparent;"
                                   >
-                                    {isSavingThis ? <LoaderIcon size={12} /> : <CheckIcon size={12} />}
-                                    <span>保存</span>
+                                    {isSavingThis ? <LoaderIcon size={12} /> : t('save')}
                                   </button>
                                 </div>
                               )}
@@ -1144,30 +1167,31 @@ export function SettingsSheet({
             </div>
           )}
 
-          {/* ================= TAB 4: 配置文件 (YAML) ================= */}
+          {/* ================= TAB 4: YAML 直出配置视图 ================= */}
           {activeTab === 'yaml' && (
             <div>
-              <div class="settings-section">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="settings-section-title" style="margin-bottom: 0;">
-                    <span>📄 ~/.dsh/settings.yaml 实时全局配置</span>
-                  </div>
-                  <button
-                    class="chip-btn"
-                    onClick={copyYaml}
-                    style="font-size: 11px; padding: 3px 8px;"
-                  >
-                    {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-                    <span>{copied ? '已复制' : '复制配置'}</span>
-                  </button>
+              <div class="flex items-center justify-between mb-2">
+                <div class="settings-section-title" style="margin-bottom: 0;">
+                  <span>~/.dsh/settings.yaml (Live Profile)</span>
                 </div>
-                <pre style="background: #090d13; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; line-height: 1.5; color: #7ee787; overflow-x: auto; white-space: pre-wrap;">
-                  {yamlContent}
-                </pre>
-                <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">
-                  💡 提示：在上方“通用”、“模型”与“插件”分栏中所作的每一项调整，均会自动热发布并持久化写入本配置文件。
-                </div>
+                <button class="chip-btn" onClick={copyYaml} style="font-size: 11px; padding: 2px 8px;">
+                  {copied ? (
+                    <>
+                      <CheckIcon size={12} className="text-accent" />
+                      <span>{t('copied')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={12} />
+                      <span>{t('copy')}</span>
+                    </>
+                  )}
+                </button>
               </div>
+
+              <pre style="background: #090d13; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #a5d6ff; line-height: 1.5; overflow-x: auto; white-space: pre;">
+                {yamlContent}
+              </pre>
             </div>
           )}
         </div>

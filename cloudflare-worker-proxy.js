@@ -184,7 +184,17 @@ export default {
       };
     }
 
-    return fetch(proxyUrl.toString(), fetchOptions);
+    const resp = await fetch(proxyUrl.toString(), fetchOptions);
+    if (queryKey === visitPassword) {
+      const newHeaders = new Headers(resp.headers);
+      newHeaders.set("Set-Cookie", `dsh_auth=${tokenHash}; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax; Secure`);
+      return new Response(resp.body, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: newHeaders,
+      });
+    }
+    return resp;
   }
 };
 

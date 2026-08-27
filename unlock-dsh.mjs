@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { execSync } from 'node:child_process';
 
 function findNodeModulesDirs() {
   const dirs = [];
@@ -39,7 +40,18 @@ function findNodeModulesDirs() {
     }
   }
 
-  // 3. Global npm node_modules
+  // 3. Dynamic npm root -g & node binary lib
+  try {
+    const npmRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    if (npmRoot) dirs.push(npmRoot);
+  } catch {}
+
+  try {
+    const nodeLibNm = path.resolve(process.execPath, '..', '..', 'lib', 'node_modules');
+    dirs.push(nodeLibNm);
+  } catch {}
+
+  // 4. Global npm node_modules
   if (process.platform === 'win32') {
     if (process.env.APPDATA) dirs.push(path.join(process.env.APPDATA, 'npm', 'node_modules'));
     dirs.push('C:\\Program Files\\nodejs\\node_modules');
@@ -49,7 +61,7 @@ function findNodeModulesDirs() {
     dirs.push(path.join(homedir(), '.npm-global', 'lib', 'node_modules'));
   }
 
-  // 4. Current & parent working directories
+  // 5. Current & parent working directories
   dirs.push(path.resolve(process.cwd(), 'node_modules'));
   dirs.push(path.resolve(process.cwd(), '..', 'node_modules'));
 

@@ -1,5 +1,6 @@
 import { h, VNode } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
+import { t } from '../i18n';
 import { SendIcon, StopIcon, ShieldIcon } from './Icons';
 
 export function Composer({
@@ -56,8 +57,8 @@ export function Composer({
     }
   };
 
-  const shortPerm = currentPermission === 'danger-full-access' ? 'Full' :
-                    currentPermission === 'workspace-write' ? 'Workspace' : 'Read-only';
+  const shortPerm = currentPermission === 'danger-full-access' ? t('permFull') :
+                    currentPermission === 'workspace-write' ? t('permWorkspace') : t('permReadOnly');
 
   return (
     <div class="app-composer-wrapper">
@@ -74,7 +75,7 @@ export function Composer({
         {isGenerating && (
           <span style="font-size: 11px; color: var(--accent-primary); display: flex; align-items: center; gap: 4px;">
             <span class="animate-spin">●</span>
-            <span>Agent 正在执行中...</span>
+            <span>{t('active')}</span>
           </span>
         )}
       </div>
@@ -84,7 +85,7 @@ export function Composer({
           ref={textareaRef}
           class="composer-textarea"
           rows={1}
-          placeholder={isGenerating ? "Agent 正在执行...输入内容将作为后续引导" : "输入消息或指令 (/ 触发命令)..."}
+          placeholder={t('placeholder')}
           value={text}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
@@ -94,7 +95,7 @@ export function Composer({
           class={`send-btn ${isGenerating ? 'stop' : ''}`}
           disabled={!isGenerating && !text.trim()}
           onClick={handleSubmit}
-          aria-label={isGenerating ? "停止生成" : "发送消息"}
+          aria-label={isGenerating ? t('stop') : t('send')}
         >
           {isGenerating ? <StopIcon size={16} /> : <SendIcon size={16} />}
         </button>

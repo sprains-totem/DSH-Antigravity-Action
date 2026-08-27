@@ -1,5 +1,6 @@
 import { h, VNode } from 'preact';
 import { SessionMetadata } from '../store/types';
+import { t } from '../i18n';
 import { CloseIcon, PlusIcon, TrashIcon, LoaderIcon } from './Icons';
 
 function formatRelativeTime(timestamp: number): string {
@@ -43,7 +44,7 @@ export function SessionDrawer({
             <span style="font-size: 18px;">⚡</span>
             <span style="font-size: 16px; font-weight: 700; color: var(--text-primary);">DSH Mobile</span>
           </div>
-          <button class="icon-btn" onClick={onClose} aria-label="关闭侧边栏">
+          <button class="icon-btn" onClick={onClose} aria-label={t('close')}>
             <CloseIcon size={20} />
           </button>
         </div>
@@ -58,7 +59,7 @@ export function SessionDrawer({
             }}
           >
             <PlusIcon size={18} />
-            <span>新建对话</span>
+            <span>{t('newChat')}</span>
           </button>
         </div>
 
@@ -66,7 +67,7 @@ export function SessionDrawer({
         <div class="drawer-list">
           {sessions.length === 0 ? (
             <div style="text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 13px;">
-              暂无历史会话
+              {t('offline')}
             </div>
           ) : (
             sessions.map((s) => {
@@ -83,7 +84,7 @@ export function SessionDrawer({
                   <div style="display: flex; flex-direction: column; min-width: 0; flex: 1; padding-right: 8px;">
                     <div style="display: flex; align-items: center; gap: 6px;">
                       {s.running && <LoaderIcon size={12} className="text-accent" />}
-                      <span class="session-item-title">{s.title || '新对话'}</span>
+                      <span class="session-item-title">{s.title || t('newSession')}</span>
                     </div>
                     <span style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
                       {formatRelativeTime(s.updatedAt)}
@@ -99,7 +100,7 @@ export function SessionDrawer({
                         onDeleteSession(s.sessionId);
                       }
                     }}
-                    title="删除会话"
+                    title={t('delete')}
                   >
                     <TrashIcon size={14} />
                   </button>
@@ -121,9 +122,9 @@ export function SessionDrawer({
           >
             <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500;">
               <span>⚙️</span>
-              <span>系统与模型设置</span>
+              <span>{t('settingsTitle')}</span>
             </div>
-            <span style="font-size: 12px; color: var(--text-muted);">配置 →</span>
+            <span style="font-size: 12px; color: var(--text-muted);">{t('sessionSettings')} →</span>
           </div>
         </div>
 

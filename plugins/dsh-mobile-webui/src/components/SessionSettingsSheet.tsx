@@ -1,6 +1,7 @@
 import { h, VNode, Fragment } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { store } from '../store/state';
+import { t, subscribeLocale } from '../i18n';
 import {
   CloseIcon,
   CpuIcon,
@@ -26,9 +27,14 @@ export function SessionSettingsSheet({
 }): VNode | null {
   if (!isOpen) return null;
 
+  const [, setLocaleTick] = useState(0);
+  useEffect(() => {
+    return subscribeLocale(() => setLocaleTick(t => t + 1));
+  }, []);
+
   const currentSession = store.getCurrentSession();
   const sessionId = store.currentSessionId || '';
-  const currentTitle = currentSession?.title || '新对话';
+  const currentTitle = currentSession?.title || t('newSession');
 
   // Editable title state
   const [titleDraft, setTitleDraft] = useState(currentTitle);
@@ -165,9 +171,9 @@ export function SessionSettingsSheet({
         <div class="sheet-header">
           <div class="flex items-center gap-2">
             <span style="font-size: 18px;">💬</span>
-            <span class="sheet-title">当前会话独立设置 (Session Settings)</span>
+            <span class="sheet-title">{t('sessionSettingsTitle')}</span>
           </div>
-          <button class="icon-btn" onClick={onClose} aria-label="关闭">
+          <button class="icon-btn" onClick={onClose} aria-label={t('close')}>
             <CloseIcon size={20} />
           </button>
         </div>
@@ -176,7 +182,7 @@ export function SessionSettingsSheet({
           {/* 1. Session Title & ID Card */}
           <div class="settings-section">
             <div class="settings-section-title">
-              <span>🏷️ 会话标题与标识</span>
+              <span>🏷️ {t('sessionTitleAndId')}</span>
             </div>
             <div class="settings-card" style="padding: 12px 14px; gap: 10px;">
               <div class="flex items-center justify-between gap-2">
@@ -197,7 +203,7 @@ export function SessionSettingsSheet({
                       disabled={savingTitle}
                     >
                       {savingTitle ? <LoaderIcon size={12} /> : <CheckIcon size={12} />}
-                      <span>保存</span>
+                      <span>{t('save')}</span>
                     </button>
                     <button
                       class="chip-btn"
@@ -206,7 +212,7 @@ export function SessionSettingsSheet({
                         setIsEditingTitle(false);
                       }}
                     >
-                      取消
+                      {t('cancel')}
                     </button>
                   </div>
                 ) : (
@@ -219,7 +225,7 @@ export function SessionSettingsSheet({
                       style="font-size: 11px; padding: 2px 8px;"
                       onClick={() => setIsEditingTitle(true)}
                     >
-                      重命名
+                      {t('rename')}
                     </button>
                   </div>
                 )}
@@ -236,7 +242,7 @@ export function SessionSettingsSheet({
                   onClick={handleCopySessionId}
                 >
                   {copiedId ? <CheckIcon size={10} /> : <CopyIcon size={10} />}
-                  <span>{copiedId ? '已复制' : '复制ID'}</span>
+                  <span>{copiedId ? t('copied') : t('copy')}</span>
                 </button>
               </div>
             </div>
@@ -246,7 +252,7 @@ export function SessionSettingsSheet({
           <div class="settings-section">
             <div class="settings-section-title">
               <CpuIcon size={14} />
-              <span>本会话专属模型 (Session Model)</span>
+              <span>{t('sessionModel')}</span>
             </div>
             <div class="settings-card">
               {availableModels.map((m) => {
@@ -272,13 +278,13 @@ export function SessionSettingsSheet({
           <div class="settings-section">
             <div class="settings-section-title">
               <BrainIcon size={14} />
-              <span>思考推理深度 (Reasoning Effort)</span>
+              <span>{t('reasoningEffortTitle')}</span>
             </div>
             <div class="settings-card">
               {[
-                { id: 'high', name: 'High (深度思考 - 推荐)', desc: '充分展开思考过程，最强代码与数学逻辑' },
-                { id: 'medium', name: 'Medium (中等思考)', desc: '兼顾深度思考与响应速度' },
-                { id: 'low', name: 'Low (快速生成)', desc: '极简思考，追求快速首字输出' },
+                { id: 'high', name: t('thinkingHigh'), desc: t('thinkingHighDesc') },
+                { id: 'medium', name: t('thinkingMedium'), desc: t('thinkingMediumDesc') },
+                { id: 'low', name: t('thinkingLow'), desc: t('thinkingLowDesc') },
               ].map((eff) => (
                 <div
                   key={eff.id}
@@ -308,13 +314,13 @@ export function SessionSettingsSheet({
           <div class="settings-section">
             <div class="settings-section-title">
               <ShieldIcon size={14} />
-              <span>本会话沙箱权限模式 (Sandbox Permission)</span>
+              <span>{t('defaultPermPreset')}</span>
             </div>
             <div class="settings-card">
               {[
-                { id: 'danger-full-access', name: 'Full Access (完全放行 - 推荐)', desc: '允许自主执行 Shell、读写文件与创建子代理' },
-                { id: 'workspace-write', name: 'Workspace Write (仅工作区写入)', desc: '文件读写受限于当前工作区，跨目录操作触发弹窗确认' },
-                { id: 'read-only', name: 'Read Only (只读模式)', desc: '完全禁止文件修改与执行破坏性工具' },
+                { id: 'danger-full-access', name: t('permFull'), desc: t('permFullDesc') },
+                { id: 'workspace-write', name: t('permWorkspace'), desc: t('permWorkspaceDesc') },
+                { id: 'read-only', name: t('permReadOnly'), desc: t('permReadOnlyDesc') },
               ].map((p) => (
                 <div
                   key={p.id}
@@ -334,7 +340,7 @@ export function SessionSettingsSheet({
           {/* 5. Session Context & Token Metrics */}
           <div class="settings-section">
             <div class="settings-section-title">
-              <span>📊 本会话上下文与 Token 消耗</span>
+              <span>📊 {t('sessionStatsTitle')}</span>
             </div>
             <div class="settings-card" style="padding: 12px 14px; gap: 8px; font-size: 12px;">
               <div class="flex items-center justify-between">
@@ -342,7 +348,7 @@ export function SessionSettingsSheet({
                 <span style="font-weight: 600; color: var(--text-primary);">{store.turns.length} 轮</span>
               </div>
               <div class="flex items-center justify-between">
-                <span style="color: var(--text-secondary);">工具调用总数</span>
+                <span style="color: var(--text-secondary);">{t('totalRequests')}</span>
                 <span style="font-weight: 600; color: var(--text-primary);">{totalToolCalls} 次</span>
               </div>
               <div class="flex items-center justify-between">
@@ -354,11 +360,11 @@ export function SessionSettingsSheet({
               {(totalInputTokens > 0 || totalOutputTokens > 0) && (
                 <div class="pt-2 mt-1" style="border-top: 1px solid var(--border-subtle);">
                   <div class="flex items-center justify-between py-0.5">
-                    <span style="color: var(--text-muted);">实际输入 Tokens:</span>
+                    <span style="color: var(--text-muted);">{t('inputTokens')}:</span>
                     <span style="color: var(--text-primary);">{totalInputTokens.toLocaleString()}</span>
                   </div>
                   <div class="flex items-center justify-between py-0.5">
-                    <span style="color: var(--text-muted);">实际输出 Tokens:</span>
+                    <span style="color: var(--text-muted);">{t('outputTokens')}:</span>
                     <span style="color: var(--text-primary);">{totalOutputTokens.toLocaleString()}</span>
                   </div>
                   {totalCacheTokens > 0 && (
@@ -381,7 +387,7 @@ export function SessionSettingsSheet({
           {/* 6. Session Quick Actions */}
           <div class="settings-section">
             <div class="settings-section-title">
-              <span>⚡ 会话操作与管理</span>
+              <span>⚡ {t('sessionActionsTitle')}</span>
             </div>
             <div class="settings-card" style="padding: 10px 12px; gap: 8px;">
               <button
@@ -392,14 +398,14 @@ export function SessionSettingsSheet({
                 <div class="flex items-center gap-2">
                   <span>📥</span>
                   <div>
-                    <div class="settings-row-label">导出本会话记录为 Markdown</div>
+                    <div class="settings-row-label">{t('exportMarkdown')}</div>
                     <div class="settings-row-desc">将完整对话、思考过程与工具调用复制到剪贴板</div>
                   </div>
                 </div>
                 {exportedTip ? (
                   <span class="status-badge completed" style="font-size: 11px;">
                     <CheckCircleIcon size={12} />
-                    <span>已复制</span>
+                    <span>{t('copied')}</span>
                   </span>
                 ) : (
                   <CopyIcon size={14} />
@@ -414,8 +420,8 @@ export function SessionSettingsSheet({
                 <div class="flex items-center gap-2">
                   <span>🧹</span>
                   <div>
-                    <div class="settings-row-label">清空当前视图历史消息</div>
-                    <div class="settings-row-desc">重置当前会话的对话气泡，保持上下文清爽</div>
+                    <div class="settings-row-label">{t('clearHistory')}</div>
+                    <div class="settings-row-desc">{t('clearHistoryDesc')}</div>
                   </div>
                 </div>
                 {clearedTip && (
@@ -433,8 +439,8 @@ export function SessionSettingsSheet({
                 <div class="flex items-center gap-2">
                   <TrashIcon size={16} className="text-danger" />
                   <div>
-                    <div class="settings-row-label" style="color: #ef4444;">彻底删除当前会话</div>
-                    <div class="settings-row-desc">永久删除本会话及所有历史记录</div>
+                    <div class="settings-row-label" style="color: #ef4444;">{t('deleteSessionPermanent')}</div>
+                    <div class="settings-row-desc">{t('deleteSessionDesc')}</div>
                   </div>
                 </div>
               </button>
@@ -451,7 +457,7 @@ export function SessionSettingsSheet({
               }}
             >
               <SettingsIcon size={15} />
-              <span>⚙️ 前往系统全局设置 (Global Settings) →</span>
+              <span>{t('goToGlobalSettings')}</span>
             </button>
           </div>
         </div>

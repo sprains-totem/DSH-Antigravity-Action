@@ -1001,7 +1001,13 @@ async function serializeMessages(messages, sessionId, model, attachments) {
         } else if (block.type === 'tool-call') {
           let args = block.arguments
           try { args = JSON.parse(block.arguments) } catch { /* keep raw */ }
-          const part = { functionCall: { name: block.name, args } }
+          const part = {
+            functionCall: {
+              name: block.name,
+              args,
+              ...(typeof block.id === 'string' && block.id.length > 0 ? { id: block.id } : {}),
+            },
+          }
           // [FIX #2167 / #765] functionCall must carry the session thought
           // signature (or a flash sentinel) or the upstream rejects the call and
           // the prefix cache misses. Replay the signature THIS call was created

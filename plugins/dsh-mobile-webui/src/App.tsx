@@ -1,6 +1,7 @@
 import { h, VNode } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { store } from './store/state';
+import { subscribeLocale } from './i18n';
 import { Header } from './components/Header';
 import { TrajectoryTimeline } from './components/TrajectoryTimeline';
 import { Composer } from './components/Composer';
@@ -26,8 +27,14 @@ export function App(): VNode {
     const unsub = store.subscribe(() => {
       setTick(t => t + 1);
     });
+    const unsubLocale = subscribeLocale(() => {
+      setTick(t => t + 1);
+    });
     store.init();
-    return unsub;
+    return () => {
+      unsub();
+      unsubLocale();
+    };
   }, []);
 
   const activeSession = store.getCurrentSession();

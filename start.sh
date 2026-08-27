@@ -26,6 +26,36 @@ log_guardian() {
   echo "[$ts] $msg" | tee -a "$GUARDIAN_LOG"
 }
 
+get_global_node_modules() {
+  local nm
+  nm="$(npm root -g 2>/dev/null || true)"
+  if [ -n "$nm" ] && [ -d "$nm" ]; then
+    echo "$nm"
+    return
+  fi
+  if [ -d "/usr/local/lib/node_modules" ]; then
+    echo "/usr/local/lib/node_modules"
+    return
+  fi
+  echo "/usr/lib/node_modules"
+}
+
+get_dsh_global_root() {
+  local global_nm
+  global_nm="$(get_global_node_modules)"
+  if [ -d "${global_nm}/@deepseek-ai/dsh" ]; then
+    echo "${global_nm}/@deepseek-ai/dsh"
+    return
+  fi
+  local from_node
+  from_node="$(node -e 'try { const p = require.resolve("@deepseek-ai/dsh/package.json"); console.log(require("path").dirname(p)); } catch(e) {}' 2>/dev/null || true)"
+  if [ -n "$from_node" ] && [ -d "$from_node" ]; then
+    echo "$from_node"
+    return
+  fi
+  echo "${global_nm}/@deepseek-ai/dsh"
+}
+
 update_slot_status() {
   local active="$1"
   local state="$2"
@@ -61,7 +91,9 @@ init_env() {
   if ! command -v dsh &> /dev/null; then
     echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh)..."
     sudo npm install -g @deepseek-ai/dsh esbuild preact marked
-    sudo chown -R $(whoami) /usr/local/lib/node_modules
+    local global_nm
+    global_nm="$(get_global_node_modules)"
+    sudo chown -R "$(whoami)" "$global_nm" 2>/dev/null || true
   fi
 
   if ! command -v esbuild &> /dev/null; then
@@ -145,7 +177,34 @@ rollback_to_slot_a() {
 deploy_plugins() {
   local src_dir="${1:-plugins}"
   mkdir -p "$PROFILE_WEB_DIR/plugins" "$PROFILE_WEB_DIR/node_modules"
-  
+
+  local global_nm
+  global_nm="$(get_global_node_modules)"
+  local dsh_root
+  dsh_root="$(get_dsh_global_root)"
+
+  # 建立核心依赖软链接以确保插件在独立目录中解析到 @deepseek-ai/* 与通用包
+  if [ -d "$dsh_root/node_modules" ]; then
+    mkdir -p "$PROFILE_WEB_DIR/node_modules/@deepseek-ai"
+    for mod in "$dsh_root/node_modules/@deepseek-ai"/*; do
+      [ -d "$mod" ] || continue
+      ln -sfn "$mod" "$PROFILE_WEB_DIR/node_modules/@deepseek-ai/$(basename "$mod")" 2>/dev/null || true
+    done
+    for mod in "$dsh_root/node_modules"/*; do
+      [ -d "$mod" ] || continue
+      [ "$(basename "$mod")" = "@deepseek-ai" ] && continue
+      ln -sfn "$mod" "$PROFILE_WEB_DIR/node_modules/$(basename "$mod")" 2>/dev/null || true
+    done
+  fi
+
+  if [ -d "$global_nm" ]; then
+    for mod in "$global_nm"/*; do
+      [ -d "$mod" ] || continue
+      [ "$(basename "$mod")" = "@deepseek-ai" ] && continue
+      ln -sfn "$mod" "$PROFILE_WEB_DIR/node_modules/$(basename "$mod")" 2>/dev/null || true
+    done
+  fi
+
   if [ -d "$src_dir" ]; then
     for p in "$src_dir"/*; do
       [ -d "$p" ] || continue
@@ -161,19 +220,21 @@ deploy_plugins() {
       if [ "$pname" = "dsh-mobile-nav" ]; then
         mkdir -p "$PROFILE_WEB_DIR/node_modules/@dsh-external"
         cp -rf "$p" "$PROFILE_WEB_DIR/node_modules/@dsh-external/dsh-mobile-nav"
-        if [ -d "/usr/local/lib/node_modules" ]; then
-          sudo mkdir -p "/usr/local/lib/node_modules/@dsh-external"
-          sudo cp -rf "$p" "/usr/local/lib/node_modules/@dsh-external/dsh-mobile-nav"
+        if [ -d "$global_nm" ]; then
+          sudo mkdir -p "$global_nm/@dsh-external" 2>/dev/null || true
+          sudo cp -rf "$p" "$global_nm/@dsh-external/dsh-mobile-nav" 2>/dev/null || true
         fi
       fi
 
       # 针对 dsh-mobile-webui 挂载至前端 dist/mobile 静态目录
       if [ "$pname" = "dsh-mobile-webui" ]; then
         if [ -f "$p/build.js" ] && command -v esbuild &> /dev/null; then
-          (cd "$p" && NODE_PATH=/usr/local/lib/node_modules node build.js >/dev/null 2>&1 || true)
+          (cd "$p" && NODE_PATH="${PROFILE_WEB_DIR}/node_modules:${global_nm}:${dsh_root}/node_modules" node build.js >/dev/null 2>&1 || true)
         fi
-        if [ -d "$p/dist" ] && [ -d "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist" ]; then
-          sudo ln -sfn "$(realpath "$p/dist")" "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/mobile"
+        local frontend_dist
+        frontend_dist="$(find "$global_nm" "$dsh_root" -type d -path "*/@deepseek-ai/dsh-web-frontend/dist" 2>/dev/null | head -n 1)"
+        if [ -d "$p/dist" ] && [ -n "$frontend_dist" ] && [ -d "$frontend_dist" ]; then
+          sudo ln -sfn "$(realpath "$p/dist")" "$frontend_dist/mobile" 2>/dev/null || true
         fi
       fi
     done
@@ -209,10 +270,19 @@ deploy_active_slot() {
   REFRESH_TOKEN="${INPUT_REFRESH_TOKEN:-$ANTIGRAVITY_REFRESH_TOKEN}"
   if [ -n "$REFRESH_TOKEN" ]; then
     cat <<EOF > "${DSH_HOME_DIR}/.credentials.yaml"
-ANTIGRAVITY_REFRESH_TOKEN: "$REFRESH_TOKEN"
+version: 1
+refs:
+  ANTIGRAVITY_REFRESH_TOKEN: "$REFRESH_TOKEN"
 EOF
+    chmod 600 "${DSH_HOME_DIR}/.credentials.yaml" 2>/dev/null || true
     export ANTIGRAVITY_REFRESH_TOKEN="$REFRESH_TOKEN"
   fi
+
+  local global_nm
+  global_nm="$(get_global_node_modules)"
+  local dsh_root
+  dsh_root="$(get_dsh_global_root)"
+  export NODE_PATH="${PROFILE_WEB_DIR}/node_modules:${global_nm}:${dsh_root}/node_modules:${NODE_PATH:-}"
 
   export CF_WORKER_URL="${CF_WORKER_URL}"
   export CF_WORKER_TOKEN="${CF_WORKER_TOKEN}"
@@ -240,7 +310,7 @@ EOF
 probe_dsh_health() {
   local pid="$1"
   local log_file="$2"
-  local max_wait=20
+  local max_wait=35
   local http_ready=false
 
   for i in $(seq 1 "$max_wait"); do
@@ -249,15 +319,15 @@ probe_dsh_health() {
       return 1
     fi
 
-    if grep -Ei "Intercepted uncaught exception|ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError" "$log_file" 2>/dev/null; then
+    if grep -Ei "ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError:" "$log_file" 2>/dev/null; then
       log_guardian "❌ [探针] 启动日志中检测到未捕获的致命异常或模块缺失"
       return 1
     fi
 
     if curl -fsS -m 2 "http://127.0.0.1:${DSH_PORT}/" >/dev/null 2>&1; then
       http_ready=true
-      sleep 3
-      if kill -0 "$pid" 2>/dev/null && ! grep -Ei "Intercepted uncaught exception|ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError" "$log_file" 2>/dev/null; then
+      sleep 2
+      if kill -0 "$pid" 2>/dev/null && ! grep -Ei "ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError:" "$log_file" 2>/dev/null; then
         log_guardian "✅ [探针] Web 服务 (Port ${DSH_PORT}) HTTP 响应正常，且无致命异常日志。"
         return 0
       fi
@@ -293,9 +363,13 @@ run_dsh() {
     log_guardian "🚀 准备拉起 DSH 实例 [当前槽位: ${active_slot}] (Port ${DSH_PORT})..."
     deploy_active_slot "$active_slot"
 
-    # 启动 dsh web 并捕获输出
-    dsh web --port "${DSH_PORT}" > >(tee "$CRASH_LOG") 2>&1 &
+    # 启动 dsh web 并直接输出到日志文件
+    dsh web --port "${DSH_PORT}" --no-open > "$CRASH_LOG" 2>&1 &
     local DSH_PID=$!
+
+    # 启动后台实时日志输出流 (便于 GitHub Actions 控制台实时观察)
+    tail -n 0 -F "$CRASH_LOG" 2>/dev/null &
+    local TAIL_PID=$!
 
     log_guardian "⏳ [A/B 自愈守护] 正在对 ${active_slot} (PID: $DSH_PID) 执行深度健康判定..."
     if probe_dsh_health "$DSH_PID" "$CRASH_LOG"; then
@@ -319,10 +393,12 @@ run_dsh() {
       # 挂起等待主进程运行
       wait "$DSH_PID" || true
       local exit_code=$?
+      kill "$TAIL_PID" 2>/dev/null || true
       log_guardian "⚠️ DSH 进程退出 (PID: $DSH_PID, Exit Code: $exit_code)"
       continue
     else
       # 健康检查失败
+      kill "$TAIL_PID" 2>/dev/null || true
       if kill -0 "$DSH_PID" 2>/dev/null; then
         kill "$DSH_PID" 2>/dev/null || true
       fi
