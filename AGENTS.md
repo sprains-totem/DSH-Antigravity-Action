@@ -68,23 +68,28 @@
 
 为了解决“Agent 自我修改（Self-modification）改出语法错误导致重启崩溃掉线”的痛点，本项目内建了双层自愈防护与严密的晋升门禁：
 
-### ① 启动守护（`start.sh` 中的 A/B 槽状态机）
-1. **Slot A 稳定快照（安全底盘）**：
-   - 启动前，脚本自动将基于 Git 稳定版本的 `cordis.patch.yml`、`plugins/` 和 `unlock-dsh.mjs` 备份至 `~/.dsh/slots/slot-a`；
-   - 严禁 Agent 或开发者在开发/修改期间手动直接覆盖 Slot A。
-2. **深度健康探针（拒绝仅看进程存活的伪健康）**：
-   - 启动 `dsh web` 后，守护程序执行三位一体的深度健康探针：
+### ① A/B 槽双向状态机与标准测试工作流（`start.sh`）
+1. **Slot A 黄金稳定快照（安全底盘）**：
+   - 存储路径：`~/.dsh/slots/slot-a`；
+   - 包含经过完整健康探针验证与 Git 提交固化的生产基线；
+   - 守护管理器在任何候选异常时以此槽位秒级自愈兜底，保障服务永不离线。
+2. **Slot B 候选测试槽（Staging / Candidate）**：
+   - 存储路径：`~/.dsh/slots/slot-b`；
+   - 开发与更新阶段，将最新修改暂存写入 Slot B（`./start.sh stage-b`），激活槽切换为 `slot-b`。
+3. **冒烟重启与深度健康探针**：
+   - 重启 DSH 主进程触发守护接管，守护进程以 **Slot B** 拉起实例，执行三位一体深度健康探针：
      - **活体检测**：`kill -0 $PID` 进程存活判定；
      - **HTTP 握手**：探测 `http://127.0.0.1:3080/` 确保端口监听并返回 HTTP 200；
-     - **日志断言**：扫描启动日志，确保没有 `fail-soft` 拦截的致命未捕获异常、Cordis 插件缺失或模块加载失败。
-3. **敏捷自动回滚**：
-   - 若进程在健康判定期内退出，或 HTTP 探针超时、或日志检出致命错误：
-     - 捕获最后 20 行异常日志；
-     - 立即调用 `rollback_from_slot_a`，将 Slot A 稳定快照全量还原回工作区与 `~/.dsh/profiles/web/`；
-     - 重新拉起稳定版本，输出警报并自愈，保障 Web 永远在线。
-4. **Git 锚定晋升门禁（解耦自动回滚与盲目晋升）**：
-   - **禁止无条件盲目自动晋升**：未崩溃不代表配置正确（如静默软失败、React 白屏、业务逻辑错误）；
-   - **双重晋升判定**：仅当 **工作区为干净的已提交状态（Git Commit 确认）** 且 **深度健康探针全部通过** 时，当前代码才允许自动晋升为新的 Slot A 稳定版本；未提交的 Dirty 实验代码保留在工作区运行，但绝不覆盖 Slot A 原始救命基线。
+     - **日志断言**：扫描启动日志，确保没有 `SyntaxError`、`Cannot find module` 或未捕获异常。
+4. **测试分流判定与标准闭环**：
+   - **Case 1 (B 槽健康通过)**：
+     - 探针通过，B 槽转为 `verified` 状态；
+     - 确认无误后执行 `git commit && git push`；
+     - 守护程序自动将 Slot B 晋升为 Slot A 黄金稳定快照 (`promote_to_slot_a`)，完成升级闭环。
+   - **Case 2 (B 槽崩溃或探针失败)**：
+     - 守护程序精准拦截，捕获异常堆栈写入 `/tmp/dsh_crash.log`；
+     - 自动触发 `rollback_to_slot_a` 秒级回滚切回 Slot A 并重新拉起；
+     - Agent/维护者在保活的 A 槽环境下读取 `/tmp/dsh_crash.log` 开展 Debug，修复后重新写入 Slot B 循环测试。
 
 ### ② 运行时故障软隔离（`plugins/dsh-fail-soft`）
 - 在 Node.js 宿主端监听 `unhandledRejection` 与 `uncaughtException`，防止个别插件的异步错误直接终止 V8 进程；
