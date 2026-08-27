@@ -4,7 +4,6 @@ import { store } from '../store/state';
 import {
   CloseIcon,
   CpuIcon,
-  SearchIcon,
   ShieldIcon,
   SparklesIcon,
   CheckIcon,
@@ -43,10 +42,10 @@ export function SettingsSheet({
   const [defaultModel, setDefaultModel] = useState<string>('gemini-3.7-flash-high');
   const [reasoningEffort, setReasoningEffort] = useState<string>('high');
 
-  // Dynamic Open Plugins state
+  // Dynamic Open Plugins state (Multi-level disclosure card model)
   const [rawNamespaces, setRawNamespaces] = useState<any[]>([]);
-  const [selectedPluginNs, setSelectedPluginNs] = useState<string | null>(null);
-  const [dynamicFormState, setDynamicFormState] = useState<Record<string, any>>({});
+  const [openCards, setOpenCards] = useState<Record<string, boolean>>({ 'llm-antigravity': true });
+  const [draftEdits, setDraftEdits] = useState<Record<string, Record<string, any>>>({});
   const [activePluginSubTab, setActivePluginSubTab] = useState<'quota' | 'usage' | 'config'>('quota');
 
   // Antigravity Live Dashboard states
@@ -60,7 +59,7 @@ export function SettingsSheet({
   const [draftBaseUrl, setDraftBaseUrl] = useState('');
 
   // UI status
-  const [saving, setSaving] = useState(false);
+  const [savingNs, setSavingNs] = useState<string | null>(null);
   const [savedTip, setSavedTip] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -107,18 +106,24 @@ export function SettingsSheet({
 
   // Mutate backend namespace
   const updateNamespace = async (ns: string, patch: Record<string, any>) => {
-    setSaving(true);
+    setSavingNs(ns);
     try {
       await store.client.rpc('settings.update', {
         ns,
         patch,
       });
       showSavedToast();
-      loadAllGlobalSettings();
+      // Clear draft for this card
+      setDraftEdits(prev => {
+        const next = { ...prev };
+        delete next[ns];
+        return next;
+      });
+      await loadAllGlobalSettings();
     } catch (e) {
       console.error(`[mobile-settings] Failed to update ${ns}:`, e);
     } finally {
-      setSaving(false);
+      setSavingNs(null);
     }
   };
 
@@ -173,7 +178,7 @@ export function SettingsSheet({
   };
 
   const saveAntigravityConfig = async () => {
-    setSaving(true);
+    setSavingNs('llm-antigravity');
     try {
       if (draftToken.trim()) {
         await store.client.rpc('credentials.set', {
@@ -189,7 +194,7 @@ export function SettingsSheet({
     } catch (err) {
       console.error(err);
     } finally {
-      setSaving(false);
+      setSavingNs(null);
     }
   };
 
@@ -227,6 +232,7 @@ export function SettingsSheet({
     await updateNamespace('shell', { timeoutMs: ms });
   };
 
+  // Gemini model + reasoning effort mapping
   const handleDefaultModelChange = async (mId: string, prov = 'antigravity') => {
     setDefaultModel(mId);
     setDefaultProvider(prov);
@@ -240,28 +246,59 @@ export function SettingsSheet({
 
   const handleReasoningEffortChange = async (effort: string) => {
     setReasoningEffort(effort);
+    // If current model is a Gemini 3.7 / 3.6 tiered model, map to corresponding thinking tier
+    let targetModel = defaultModel;
+    if (defaultModel.startsWith('gemini-3.7-flash-')) {
+      targetModel = `gemini-3.7-flash-${effort}`;
+      setDefaultModel(targetModel);
+    } else if (defaultModel.startsWith('gemini-3.6-flash-')) {
+      targetModel = `gemini-3.6-flash-${effort}`;
+      setDefaultModel(targetModel);
+    }
+
     await updateNamespace('agent-default-model', {
       provider: defaultProvider,
-      model: defaultModel,
+      model: targetModel,
       reasoningEffort: effort,
     });
+    await store.selectModel(targetModel, defaultProvider);
   };
 
-  // Open dynamic form handlers for any plugin namespace
-  const handleOpenPlugin = (ns: string) => {
-    setSelectedPluginNs(ns);
-    const nsObj = rawNamespaces.find(n => n.ns === ns);
-    const currentVal = nsObj ? (nsObj.user || nsObj.resolved || nsObj.base || {}) : {};
-    setDynamicFormState({ ...currentVal });
-
-    if (ns === 'llm-antigravity' || ns === 'dsh-llm-antigravity') {
+  // Multi-level Card Toggle
+  const toggleCard = (ns: string) => {
+    const isOpening = !openCards[ns];
+    setOpenCards(prev => ({ ...prev, [ns]: isOpening }));
+    if (isOpening && (ns === 'llm-antigravity' || ns === 'dsh-llm-antigravity')) {
       fetchAntigravityQuota();
       fetchAntigravityUsage();
     }
   };
 
-  const handleSaveDynamicNamespace = async (ns: string) => {
-    await updateNamespace(ns, dynamicFormState);
+  // Card draft editing
+  const editCardField = (ns: string, field: string, value: any) => {
+    setDraftEdits(prev => {
+      const cardDraft = prev[ns] || {};
+      return {
+        ...prev,
+        [ns]: {
+          ...cardDraft,
+          [field]: value,
+        },
+      };
+    });
+  };
+
+  const discardCardEdits = (ns: string) => {
+    setDraftEdits(prev => {
+      const next = { ...prev };
+      delete next[ns];
+      return next;
+    });
+  };
+
+  const saveCardEdits = async (ns: string) => {
+    const patch = draftEdits[ns] || {};
+    await updateNamespace(ns, patch);
   };
 
   // Format countdown for quota resets
@@ -309,7 +346,7 @@ export function SettingsSheet({
           <div class="flex items-center gap-2">
             <span style="font-size: 18px;">⚙️</span>
             <span class="sheet-title">系统全局设置 (Global Settings)</span>
-            {saving && <LoaderIcon size={14} className="text-accent" />}
+            {savingNs && <LoaderIcon size={14} className="text-accent" />}
             {savedTip && (
               <span class="status-badge completed" style="font-size: 11px;">
                 <CheckCircleIcon size={11} />
@@ -340,7 +377,7 @@ export function SettingsSheet({
             class={`settings-tab-btn ${activeTab === 'plugins' ? 'active' : ''}`}
             onClick={() => setActiveTab('plugins')}
           >
-            🔌 开放插件
+            🔌 插件管理
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'yaml' ? 'active' : ''}`}
@@ -487,8 +524,10 @@ export function SettingsSheet({
                 <div class="settings-card">
                   {[
                     { id: 'gemini-3.7-flash-high', prov: 'antigravity', name: 'Gemini 3.7 Flash High', desc: '深度思考推理旗舰模型（推荐）' },
-                    { id: 'gemini-2.5-flash', prov: 'antigravity', name: 'Gemini 2.5 Flash', desc: '极速低延迟，适合轻量快速问答' },
+                    { id: 'gemini-3.7-flash-medium', prov: 'antigravity', name: 'Gemini 3.7 Flash Medium', desc: '中等思考深度，平衡性能与时延' },
+                    { id: 'gemini-3.7-flash-low', prov: 'antigravity', name: 'Gemini 3.7 Flash Low', desc: '极速低思考预算，适合轻量快速任务' },
                     { id: 'gemini-2.5-pro', prov: 'antigravity', name: 'Gemini 2.5 Pro', desc: '百万上下文窗口，复杂代码重构' },
+                    { id: 'gemini-2.5-flash', prov: 'antigravity', name: 'Gemini 2.5 Flash', desc: '极速低延迟快速问答' },
                     { id: 'gemini-3-flash', prov: 'antigravity', name: 'Gemini 3 Flash', desc: '下一代极速多模态模型' },
                     { id: 'deepseek-v4-flash', prov: 'deepseek-official', name: 'DeepSeek-V4-Flash', desc: 'DeepSeek 官方推理大模型' },
                     { id: 'claude-sonnet-4-6', prov: 'antigravity', name: 'Claude Sonnet 4.6', desc: 'Claude 代码能力模型' },
@@ -513,13 +552,13 @@ export function SettingsSheet({
 
               <div class="settings-section">
                 <div class="settings-section-title">
-                  <span>🧠 默认思考等级 (Reasoning Effort)</span>
+                  <span>🧠 思考深度档位 (Reasoning Effort)</span>
                 </div>
                 <div class="settings-card">
                   {[
-                    { id: 'high', name: 'High (深度思考 - 推荐)', desc: '充分展开思维链，最强逻辑与代码推理' },
-                    { id: 'medium', name: 'Medium (中等思考)', desc: '平衡思考深度与响应速度' },
-                    { id: 'low', name: 'Low (快速生成)', desc: '缩减思考过程，追求首字响应时延' },
+                    { id: 'high', name: 'High (深度思考 - 推荐)', desc: '充分展开思维链，最强逻辑与代码推理（路由至 gemini-3.7-flash-high）' },
+                    { id: 'medium', name: 'Medium (中等思考)', desc: '平衡思考深度与响应速度（路由至 gemini-3.7-flash-medium）' },
+                    { id: 'low', name: 'Low (快速生成)', desc: '缩减思考过程，追求首字响应时延（路由至 gemini-3.7-flash-low）' },
                   ].map((eff) => (
                     <div
                       key={eff.id}
@@ -538,343 +577,314 @@ export function SettingsSheet({
             </div>
           )}
 
-          {/* ================= TAB 3: 开放插件体系 (Open Plugins & Extensions) ================= */}
+          {/* ================= TAB 3: 原版多层级折叠卡片列表 (Disclosure Plugin Cards) ================= */}
           {activeTab === 'plugins' && (
-            <div>
-              {/* If a specific plugin is selected to view */}
-              {selectedPluginNs ? (
-                <div>
-                  {/* Back button */}
-                  <div class="flex items-center justify-between mb-3">
-                    <button
-                      class="chip-btn"
-                      onClick={() => setSelectedPluginNs(null)}
-                      style="font-size: 12px; padding: 4px 10px;"
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <div class="settings-section-title" style="margin-bottom: 4px;">
+                <span>🔌 已注册插件配置列表 (Plugin Cards)</span>
+              </div>
+
+              {rawNamespaces.length === 0 ? (
+                <div style="font-size: 12px; color: var(--text-muted); padding: 20px; text-align: center;">
+                  正在自省发现插件配置...
+                </div>
+              ) : (
+                rawNamespaces.map((nsItem) => {
+                  const ns = nsItem.ns;
+                  const isOpen = Boolean(openCards[ns]);
+                  const resolvedVal = nsItem.user || nsItem.resolved || nsItem.base || {};
+                  const stagedDraft = draftEdits[ns] || {};
+                  const currentEffective = { ...resolvedVal, ...stagedDraft };
+                  const isDirty = Object.keys(stagedDraft).length > 0;
+                  const isSavingThis = savingNs === ns;
+
+                  return (
+                    <div
+                      key={ns}
+                      style={{
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-subtle)',
+                        background: isOpen ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                        overflow: 'hidden',
+                        transition: 'background 0.2s, border-color 0.2s',
+                      }}
                     >
-                      ← 返回已挂载插件列表
-                    </button>
-                    <span style="font-weight: 600; font-size: 13px; color: var(--accent-primary);">
-                      {selectedPluginNs}
-                    </span>
-                  </div>
-
-                  {/* SPECIALIZED DASHBOARD: llm-antigravity / dsh-llm-antigravity */}
-                  {(selectedPluginNs === 'llm-antigravity' || selectedPluginNs === 'dsh-llm-antigravity') ? (
-                    <div>
-                      {/* Sub tab nav */}
-                      <div class="settings-tabs" style="margin-bottom: 12px;">
-                        <button
-                          class={`settings-tab-btn ${activePluginSubTab === 'quota' ? 'active' : ''}`}
-                          onClick={() => setActivePluginSubTab('quota')}
-                        >
-                          📊 实时额度
-                        </button>
-                        <button
-                          class={`settings-tab-btn ${activePluginSubTab === 'usage' ? 'active' : ''}`}
-                          onClick={() => setActivePluginSubTab('usage')}
-                        >
-                          📈 用量统计
-                        </button>
-                        <button
-                          class={`settings-tab-btn ${activePluginSubTab === 'config' ? 'active' : ''}`}
-                          onClick={() => setActivePluginSubTab('config')}
-                        >
-                          ⚙️ 基本配置
-                        </button>
-                      </div>
-
-                      {/* SubTab 1: Quota */}
-                      {activePluginSubTab === 'quota' && (
-                        <div class="settings-card" style="padding: 14px; gap: 12px;">
-                          <div class="flex items-center justify-between">
-                            <div>
-                              <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">Google Antigravity 实时额度</div>
-                              <div style="font-size: 11px; color: var(--text-muted);">
-                                关联项目: {quotaData?.projectId || '未指定'} • 权益: {quotaData?.tier || 'Pro'}
-                              </div>
-                            </div>
-                            <button
-                              class="chip-btn"
-                              onClick={() => fetchAntigravityQuota(true)}
-                              disabled={loadingQuota}
-                              style="font-size: 11px; padding: 3px 8px;"
-                            >
-                              {loadingQuota ? <LoaderIcon size={12} /> : '🔄 刷新'}
-                            </button>
+                      {/* Multi-level Card Header */}
+                      <button
+                        type="button"
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '12px 14px',
+                          border: 0,
+                          background: 'transparent',
+                          color: 'inherit',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                        onClick={() => toggleCard(ns)}
+                        aria-expanded={isOpen}
+                      >
+                        <div style="min-width: 0; flex: 1; padding-right: 8px;">
+                          <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">
+                              {nsItem.title || ns}
+                            </span>
+                            {isDirty && (
+                              <span style="font-size: 11px; color: #f59e0b; font-weight: 500;">
+                                • 未保存修改
+                              </span>
+                            )}
                           </div>
+                          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                            {nsItem.description || `命名空间: ${ns}`}
+                          </div>
+                        </div>
 
-                          {quotaError ? (
-                            <div style="color: #ef4444; font-size: 12px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm);">
-                              {quotaError}
-                            </div>
-                          ) : quotaData ? (
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span class="status-badge completed" style="font-size: 10px;">Active</span>
+                          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease', color: 'var(--text-muted)' }}>
+                            ▾
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Multi-level Card Body (Expanded inline) */}
+                      {isOpen && (
+                        <div style="padding: 0 14px 14px; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 12px; margin-top: 4px; padding-top: 12px;">
+                          {/* Case A: Antigravity rich interactive dashboard */}
+                          {(ns === 'llm-antigravity' || ns === 'dsh-llm-antigravity') ? (
                             <div>
-                              {/* 5-Hour limit */}
-                              {quotaData.limit5h && (
-                                <div style="margin-bottom: 12px;">
-                                  <div class="flex items-center justify-between" style="font-size: 12px;">
-                                    <span style="font-weight: 500; color: var(--text-secondary);">5小时限额剩余</span>
-                                    <span style="font-weight: 700; color: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)';">
-                                      {quotaData.limit5h.pctRemaining}% ({formatSeconds(quotaData.limit5h.resetsInSeconds)}后重置)
-                                    </span>
-                                  </div>
-                                  <div class="quota-progress-track">
-                                    <div
-                                      class="quota-progress-fill"
-                                      style={{
-                                        width: `${Math.max(0, Math.min(100, quotaData.limit5h.pctRemaining))}%`,
-                                        background: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)',
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                              )}
+                              {/* Sub tabs */}
+                              <div class="settings-tabs" style="margin-bottom: 10px;">
+                                <button
+                                  class={`settings-tab-btn ${activePluginSubTab === 'quota' ? 'active' : ''}`}
+                                  onClick={() => setActivePluginSubTab('quota')}
+                                >
+                                  📊 实时额度
+                                </button>
+                                <button
+                                  class={`settings-tab-btn ${activePluginSubTab === 'usage' ? 'active' : ''}`}
+                                  onClick={() => setActivePluginSubTab('usage')}
+                                >
+                                  📈 用量统计
+                                </button>
+                                <button
+                                  class={`settings-tab-btn ${activePluginSubTab === 'config' ? 'active' : ''}`}
+                                  onClick={() => setActivePluginSubTab('config')}
+                                >
+                                  ⚙️ 凭据配置
+                                </button>
+                              </div>
 
-                              {/* Models quota list */}
-                              {Array.isArray(quotaData.models) && (
-                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                                  <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">分模型额度状态:</div>
-                                  {quotaData.models.map((m: any, idx: number) => (
-                                    <div key={idx} style="background: var(--bg-tertiary); padding: 8px 10px; border-radius: var(--radius-sm);">
+                              {activePluginSubTab === 'quota' && (
+                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                  <div class="flex items-center justify-between">
+                                    <span style="font-size: 12px; color: var(--text-muted);">
+                                      项目: {quotaData?.projectId || '自动识别'} • 权益: {quotaData?.tier || 'Pro'}
+                                    </span>
+                                    <button
+                                      class="chip-btn"
+                                      onClick={() => fetchAntigravityQuota(true)}
+                                      disabled={loadingQuota}
+                                      style="font-size: 11px; padding: 2px 8px;"
+                                    >
+                                      {loadingQuota ? <LoaderIcon size={12} /> : '🔄 刷新'}
+                                    </button>
+                                  </div>
+
+                                  {quotaData?.limit5h && (
+                                    <div>
                                       <div class="flex items-center justify-between" style="font-size: 12px;">
-                                        <span style="font-weight: 500; color: var(--text-primary);">{m.modelId || m.name}</span>
-                                        <span style="color: var(--accent-primary); font-weight: 600;">{m.pctRemaining ?? 100}%</span>
+                                        <span style="color: var(--text-secondary);">5小时限额剩余</span>
+                                        <span style="font-weight: 700; color: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)';">
+                                          {quotaData.limit5h.pctRemaining}% ({formatSeconds(quotaData.limit5h.resetsInSeconds)}后重置)
+                                        </span>
                                       </div>
-                                      <div class="quota-progress-track" style="margin: 4px 0 2px;">
+                                      <div class="quota-progress-track">
                                         <div
                                           class="quota-progress-fill"
                                           style={{
-                                            width: `${Math.max(0, Math.min(100, m.pctRemaining ?? 100))}%`,
-                                            background: (m.pctRemaining ?? 100) < 20 ? '#ef4444' : '#10b981',
+                                            width: `${Math.max(0, Math.min(100, quotaData.limit5h.pctRemaining))}%`,
+                                            background: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)',
                                           }}
                                         />
                                       </div>
                                     </div>
-                                  ))}
+                                  )}
+
+                                  {Array.isArray(quotaData?.models) && (
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                      {quotaData.models.map((m: any, idx: number) => (
+                                        <div key={idx} style="background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);">
+                                          <div class="flex items-center justify-between" style="font-size: 11px;">
+                                            <span style="color: var(--text-primary);">{m.modelId || m.name}</span>
+                                            <span style="color: var(--accent-primary); font-weight: 600;">{m.pctRemaining ?? 100}%</span>
+                                          </div>
+                                          <div class="quota-progress-track" style="margin: 3px 0 1px;">
+                                            <div
+                                              class="quota-progress-fill"
+                                              style={{
+                                                width: `${Math.max(0, Math.min(100, m.pctRemaining ?? 100))}%`,
+                                                background: (m.pctRemaining ?? 100) < 20 ? '#ef4444' : '#10b981',
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {activePluginSubTab === 'usage' && (
+                                <div>
+                                  <div class="flex items-center justify-between mb-2">
+                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">调用与缓存统计</span>
+                                    <div class="flex items-center gap-2">
+                                      <button class="chip-btn" onClick={fetchAntigravityUsage} disabled={loadingUsage} style="font-size: 11px; padding: 2px 6px;">
+                                        刷新
+                                      </button>
+                                      <button class="chip-btn" onClick={clearAntigravityUsage} disabled={clearingUsage} style="font-size: 11px; padding: 2px 6px; color: #ef4444;">
+                                        清空
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div class="plugin-metric-grid">
+                                    <div class="plugin-metric-box">
+                                      <span class="plugin-metric-label">调用总次数</span>
+                                      <span class="plugin-metric-value">{usageData?.totalRequests ?? 0}</span>
+                                    </div>
+                                    <div class="plugin-metric-box">
+                                      <span class="plugin-metric-label">实际输入 Tokens</span>
+                                      <span class="plugin-metric-value">{(usageData?.totalInput ?? 0).toLocaleString()}</span>
+                                    </div>
+                                    <div class="plugin-metric-box">
+                                      <span class="plugin-metric-label">实际输出 Tokens</span>
+                                      <span class="plugin-metric-value">{(usageData?.totalOutput ?? 0).toLocaleString()}</span>
+                                    </div>
+                                    <div class="plugin-metric-box">
+                                      <span class="plugin-metric-label">缓存命中率</span>
+                                      <span class="plugin-metric-value" style="color: #10b981;">{usageData?.cacheHitRate ?? '0%'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {activePluginSubTab === 'config' && (
+                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                  <div>
+                                    <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
+                                      OAuth 2.0 Refresh Token
+                                    </label>
+                                    <input
+                                      type="password"
+                                      class="settings-input"
+                                      placeholder="填入 Refresh Token（留空保持不变）"
+                                      value={draftToken}
+                                      onInput={(e: any) => setDraftToken(e.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
+                                      Base URL 端点
+                                    </label>
+                                    <input
+                                      type="text"
+                                      class="settings-input"
+                                      value={draftBaseUrl}
+                                      onInput={(e: any) => setDraftBaseUrl(e.target.value)}
+                                    />
+                                  </div>
+                                  <button
+                                    class="chip-btn"
+                                    style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 36px; justify-content: center;"
+                                    onClick={saveAntigravityConfig}
+                                    disabled={Boolean(savingNs)}
+                                  >
+                                    {savingNs === 'llm-antigravity' ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
+                                    <span>保存 Antigravity 凭据</span>
+                                  </button>
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 16px;">
-                              {loadingQuota ? '正在查询最新额度...' : '点击刷新查询实时额度'}
+                            /* Case B: Universal Dynamic multi-level schema fields */
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                              {Object.keys(currentEffective).length === 0 ? (
+                                <div style="font-size: 12px; color: var(--text-muted); padding: 6px 0;">
+                                  该插件使用默认参数运行。
+                                </div>
+                              ) : (
+                                Object.entries(currentEffective).map(([key, val]) => {
+                                  const isBool = typeof val === 'boolean';
+                                  const isNum = typeof val === 'number';
+
+                                  return (
+                                    <div key={key} style="display: flex; flex-direction: column; gap: 4px;">
+                                      <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">
+                                        {key}
+                                      </label>
+                                      {isBool ? (
+                                        <select
+                                          class="settings-select"
+                                          value={String(val)}
+                                          onChange={(e: any) => editCardField(ns, key, e.target.value === 'true')}
+                                        >
+                                          <option value="true">true (启用)</option>
+                                          <option value="false">false (禁用)</option>
+                                        </select>
+                                      ) : isNum ? (
+                                        <input
+                                          type="number"
+                                          class="settings-input"
+                                          value={val}
+                                          onInput={(e: any) => editCardField(ns, key, Number(e.target.value))}
+                                        />
+                                      ) : (
+                                        <input
+                                          type="text"
+                                          class="settings-input"
+                                          value={String(val || '')}
+                                          onInput={(e: any) => editCardField(ns, key, e.target.value)}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              )}
+
+                              {/* Card Footer for Save / Discard */}
+                              {isDirty && (
+                                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
+                                  <button
+                                    class="chip-btn"
+                                    onClick={() => discardCardEdits(ns)}
+                                    disabled={isSavingThis}
+                                    style="font-size: 12px;"
+                                  >
+                                    放弃
+                                  </button>
+                                  <button
+                                    class="chip-btn"
+                                    style="background: var(--accent-primary); color: #fff; border-color: transparent; font-size: 12px;"
+                                    onClick={() => saveCardEdits(ns)}
+                                    disabled={isSavingThis}
+                                  >
+                                    {isSavingThis ? <LoaderIcon size={12} /> : <CheckIcon size={12} />}
+                                    <span>保存</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
                       )}
-
-                      {/* SubTab 2: Usage */}
-                      {activePluginSubTab === 'usage' && (
-                        <div class="settings-card" style="padding: 14px; gap: 12px;">
-                          <div class="flex items-center justify-between">
-                            <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">Token 用量统计</span>
-                            <div class="flex items-center gap-2">
-                              <button
-                                class="chip-btn"
-                                onClick={fetchAntigravityUsage}
-                                disabled={loadingUsage}
-                                style="font-size: 11px; padding: 3px 8px;"
-                              >
-                                {loadingUsage ? <LoaderIcon size={12} /> : '刷新'}
-                              </button>
-                              <button
-                                class="chip-btn"
-                                onClick={clearAntigravityUsage}
-                                disabled={clearingUsage}
-                                style="font-size: 11px; padding: 3px 8px; color: #ef4444;"
-                              >
-                                清空
-                              </button>
-                            </div>
-                          </div>
-
-                          <div class="plugin-metric-grid">
-                            <div class="plugin-metric-box">
-                              <span class="plugin-metric-label">调用总次数</span>
-                              <span class="plugin-metric-value">{usageData?.totalRequests ?? 0}</span>
-                            </div>
-                            <div class="plugin-metric-box">
-                              <span class="plugin-metric-label">输入 Tokens</span>
-                              <span class="plugin-metric-value">{(usageData?.totalInput ?? 0).toLocaleString()}</span>
-                            </div>
-                            <div class="plugin-metric-box">
-                              <span class="plugin-metric-label">输出 Tokens</span>
-                              <span class="plugin-metric-value">{(usageData?.totalOutput ?? 0).toLocaleString()}</span>
-                            </div>
-                            <div class="plugin-metric-box">
-                              <span class="plugin-metric-label">缓存命中率</span>
-                              <span class="plugin-metric-value" style="color: #10b981;">{usageData?.cacheHitRate ?? '0%'}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* SubTab 3: Config */}
-                      {activePluginSubTab === 'config' && (
-                        <div class="settings-card" style="padding: 14px; gap: 12px;">
-                          <div>
-                            <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
-                              OAuth 2.0 Refresh Token
-                            </label>
-                            <input
-                              type="password"
-                              class="settings-input"
-                              placeholder="填入 Refresh Token（留空保持不变）"
-                              value={draftToken}
-                              onInput={(e: any) => setDraftToken(e.target.value)}
-                            />
-                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                              保存在系统凭据服务中，用于自动换取 Google Cloud Code 访问凭证
-                            </div>
-                          </div>
-
-                          <div>
-                            <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
-                              Base URL 接口端点
-                            </label>
-                            <input
-                              type="text"
-                              class="settings-input"
-                              placeholder="https://daily-cloudcode-pa.googleapis.com/v1internal"
-                              value={draftBaseUrl}
-                              onInput={(e: any) => setDraftBaseUrl(e.target.value)}
-                            />
-                          </div>
-
-                          <button
-                            class="chip-btn"
-                            style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 38px; font-weight: 600; justify-content: center;"
-                            onClick={saveAntigravityConfig}
-                            disabled={saving}
-                          >
-                            {saving ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
-                            <span>保存配置</span>
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  ) : (
-                    /* UNIVERSAL DYNAMIC SCHEMA FORM for any other plugin namespace */
-                    <div class="settings-card" style="padding: 14px; gap: 12px;">
-                      <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">
-                        命名空间参数配置 ({selectedPluginNs})
-                      </div>
-                      <div style="font-size: 11px; color: var(--text-muted);">
-                        由插件自身声明的配置项，修改后自动同步至 Cordis 运行时
-                      </div>
-
-                      {Object.keys(dynamicFormState).length === 0 ? (
-                        <div style="font-size: 12px; color: var(--text-muted); padding: 12px 0;">
-                          该插件暂未声明公开属性或使用默认配置。
-                        </div>
-                      ) : (
-                        Object.entries(dynamicFormState).map(([key, val]) => {
-                          const isBool = typeof val === 'boolean';
-                          const isNum = typeof val === 'number';
-
-                          return (
-                            <div key={key} style="display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
-                              <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">
-                                {key}
-                              </label>
-                              {isBool ? (
-                                <select
-                                  class="settings-select"
-                                  value={String(val)}
-                                  onChange={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: e.target.value === 'true' })}
-                                >
-                                  <option value="true">true (启用)</option>
-                                  <option value="false">false (禁用)</option>
-                                </select>
-                              ) : isNum ? (
-                                <input
-                                  type="number"
-                                  class="settings-input"
-                                  value={val}
-                                  onInput={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: Number(e.target.value) })}
-                                />
-                              ) : (
-                                <input
-                                  type="text"
-                                  class="settings-input"
-                                  value={String(val || '')}
-                                  onInput={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: e.target.value })}
-                                />
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-
-                      <button
-                        class="chip-btn"
-                        style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 38px; font-weight: 600; justify-content: center; margin-top: 4px;"
-                        onClick={() => handleSaveDynamicNamespace(selectedPluginNs)}
-                        disabled={saving}
-                      >
-                        {saving ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
-                        <span>保存此插件配置</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* OPEN PLUGIN ROSTER: Dynamically discovered namespaces and plugins */
-                <div>
-                  <div class="settings-section">
-                    <div class="settings-section-title">
-                      <span>📦 运行实例已挂载插件与命名空间 (Open Plugins)</span>
-                    </div>
-                    <div class="settings-card" style="padding: 10px 14px; gap: 8px;">
-                      {rawNamespaces.length === 0 ? (
-                        <div style="font-size: 12px; color: var(--text-muted); padding: 12px; text-align: center;">
-                          正在自省发现插件...
-                        </div>
-                      ) : (
-                        rawNamespaces.map((nsItem) => {
-                          const nsName = nsItem.ns;
-                          return (
-                            <div
-                              key={nsName}
-                              class="flex items-center justify-between py-2"
-                              style="border-bottom: 1px solid var(--border-subtle); cursor: pointer;"
-                              onClick={() => handleOpenPlugin(nsName)}
-                            >
-                              <div style="min-width: 0; flex: 1; padding-right: 8px;">
-                                <div style="font-weight: 600; font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-                                  <span>🔌 {nsItem.title || nsName}</span>
-                                </div>
-                                <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">
-                                  命名空间: <code style="color: var(--accent-primary);">{nsName}</code>
-                                </div>
-                              </div>
-                              <div class="flex items-center gap-2">
-                                <span class="status-badge completed" style="font-size: 10px;">Active</span>
-                                <ChevronRightIcon size={14} className="text-muted" />
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Network Tunnel Status */}
-                  <div class="settings-section">
-                    <div class="settings-section-title">
-                      <span>☁️ Cloudflare Quick Tunnel 穿透</span>
-                    </div>
-                    <div class="settings-card" style="padding: 12px 14px; gap: 8px; font-size: 12px;">
-                      <div class="flex items-center justify-between">
-                        <span style="color: var(--text-secondary);">服务状态</span>
-                        <span class="status-badge completed">在线 Online</span>
-                      </div>
-                      <div class="flex items-center justify-between">
-                        <span style="color: var(--text-secondary);">Worker 路由域名</span>
-                        <a href="https://dsh.b-1.workers.dev" target="_blank" style="color: var(--accent-primary); text-decoration: none;">dsh.b-1.workers.dev</a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })
               )}
             </div>
           )}
