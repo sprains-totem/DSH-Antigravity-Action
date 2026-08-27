@@ -65,33 +65,53 @@ function findNodeModulesDirs() {
   dirs.push(path.resolve(process.cwd(), 'node_modules'));
   dirs.push(path.resolve(process.cwd(), '..', 'node_modules'));
 
-  return dirs.filter((d) => fs.existsSync(d));
+  // Normalize, deduplicate and filter existing directories
+  const uniqueDirs = Array.from(new Set(dirs.filter(Boolean).map(d => path.resolve(d))));
+  return uniqueDirs.filter((d) => fs.existsSync(d));
 }
 
 function patchFile(filePath, transforms) {
   if (!fs.existsSync(filePath)) return false;
-  let code = fs.readFileSync(filePath, 'utf8');
-  let changed = false;
+  try {
+    let code = fs.readFileSync(filePath, 'utf8');
+    let changed = false;
 
-  for (const { name, search, replace } of transforms) {
-    if (typeof search === 'string') {
-      if (code.includes(search) && !code.includes(replace)) {
-        code = code.replace(search, replace);
-        changed = true;
-        console.log(`  [+] Applied patch [${name}] to: ${filePath}`);
-      }
-    } else if (search instanceof RegExp) {
-      if (search.test(code)) {
-        code = code.replace(search, replace);
-        changed = true;
-        console.log(`  [+] Applied regex patch [${name}] to: ${filePath}`);
+    for (const { name, search, replace } of transforms) {
+      if (typeof search === 'string') {
+        if (code.includes(search) && !code.includes(replace)) {
+          code = code.replace(search, replace);
+          changed = true;
+          console.log(`  [+] Applied patch [${name}] to: ${filePath}`);
+        }
+      } else if (search instanceof RegExp) {
+        if (search.test(code)) {
+          code = code.replace(search, replace);
+          changed = true;
+          console.log(`  [+] Applied regex patch [${name}] to: ${filePath}`);
+        }
       }
     }
-  }
 
-  if (changed) {
-    fs.writeFileSync(filePath, code, 'utf8');
-    return true;
+    if (changed) {
+      try {
+        fs.writeFileSync(filePath, code, 'utf8');
+      } catch (writeErr) {
+        if (writeErr.code === 'EACCES') {
+          try {
+            fs.chmodSync(filePath, 0o666);
+            fs.writeFileSync(filePath, code, 'utf8');
+          } catch (chmodErr) {
+            console.warn(`  [!] EACCES: skipped read-only file ${filePath}`);
+            return false;
+          }
+        } else {
+          throw writeErr;
+        }
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn(`  [!] Warning while patching ${filePath}:`, err?.message || err);
   }
   return false;
 }

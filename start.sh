@@ -88,12 +88,14 @@ init_env() {
     rm -f cloudflared.deb
   fi
 
+  local global_nm
+  global_nm="$(get_global_node_modules)"
+  sudo chown -R "$(whoami)" "$global_nm" /usr/local/lib/node_modules /usr/lib/node_modules 2>/dev/null || true
+
   if ! command -v dsh &> /dev/null; then
     echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh)..."
     sudo npm install -g @deepseek-ai/dsh esbuild preact marked
-    local global_nm
-    global_nm="$(get_global_node_modules)"
-    sudo chown -R "$(whoami)" "$global_nm" 2>/dev/null || true
+    sudo chown -R "$(whoami)" "$global_nm" /usr/local/lib/node_modules /usr/lib/node_modules 2>/dev/null || true
   fi
 
   if ! command -v esbuild &> /dev/null; then
@@ -250,17 +252,17 @@ deploy_active_slot() {
     log_guardian "📦 [A/B 部署] 当前激活槽位为 Slot B，从候选槽 $SLOT_B_DIR 部署..."
     source_dir="$SLOT_B_DIR/plugins"
     [ -f "$SLOT_B_DIR/cordis.patch.yml" ] && cp "$SLOT_B_DIR/cordis.patch.yml" "$PROFILE_WEB_DIR/cordis.patch.yml"
-    [ -f "$SLOT_B_DIR/unlock-dsh.mjs" ] && node "$SLOT_B_DIR/unlock-dsh.mjs"
+    [ -f "$SLOT_B_DIR/unlock-dsh.mjs" ] && node "$SLOT_B_DIR/unlock-dsh.mjs" 2>&1 || true
   elif [ -d "$SLOT_A_DIR/plugins" ]; then
     log_guardian "📦 [A/B 部署] 当前激活槽位为 Slot A，从黄金稳定槽 $SLOT_A_DIR 部署..."
     source_dir="$SLOT_A_DIR/plugins"
     [ -f "$SLOT_A_DIR/cordis.patch.yml" ] && cp "$SLOT_A_DIR/cordis.patch.yml" "$PROFILE_WEB_DIR/cordis.patch.yml"
-    [ -f "$SLOT_A_DIR/unlock-dsh.mjs" ] && node "$SLOT_A_DIR/unlock-dsh.mjs"
+    [ -f "$SLOT_A_DIR/unlock-dsh.mjs" ] && node "$SLOT_A_DIR/unlock-dsh.mjs" 2>&1 || true
   else
     log_guardian "📦 [A/B 部署] 初始冷启动，从工作区 plugins/ 部署..."
     source_dir="plugins"
     [ -f "cordis.patch.yml" ] && cp cordis.patch.yml "$PROFILE_WEB_DIR/cordis.patch.yml"
-    [ -f "unlock-dsh.mjs" ] && node unlock-dsh.mjs
+    [ -f "unlock-dsh.mjs" ] && node unlock-dsh.mjs 2>&1 || true
   fi
 
   deploy_plugins "$source_dir"
