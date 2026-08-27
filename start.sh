@@ -250,7 +250,8 @@ run_dsh() {
       wait "$DSH_PID" || true
       local exit_code=$?
       echo "⚠️ DSH 进程退出 (Exit Code: $exit_code)"
-      break
+      is_rollback_attempt=0
+      continue
     else
       # 进程可能异常挂起或失败，若仍在运行则终止它
       if kill -0 "$DSH_PID" 2>/dev/null; then
