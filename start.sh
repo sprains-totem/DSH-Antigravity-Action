@@ -25,33 +25,36 @@ log_guardian() {
 }
 
 get_global_node_modules() {
+  if [ -d "/usr/local/lib/node_modules" ]; then
+    echo "/usr/local/lib/node_modules"
+    return
+  fi
   local nm
   nm="$(npm root -g 2>/dev/null || true)"
   if [ -n "$nm" ] && [ -d "$nm" ]; then
     echo "$nm"
     return
   fi
-  if [ -d "/usr/local/lib/node_modules" ]; then
-    echo "/usr/local/lib/node_modules"
-    return
-  fi
   echo "/usr/lib/node_modules"
 }
 
 get_dsh_global_root() {
-  local global_nm
-  global_nm="$(get_global_node_modules)"
-  if [ -d "${global_nm}/@deepseek-ai/dsh" ]; then
-    echo "${global_nm}/@deepseek-ai/dsh"
-    return
-  fi
+  for candidate in \
+    "/usr/local/lib/node_modules/@deepseek-ai/dsh" \
+    "$(get_global_node_modules)/@deepseek-ai/dsh" \
+    "/usr/lib/node_modules/@deepseek-ai/dsh"; do
+    if [ -d "$candidate" ]; then
+      echo "$candidate"
+      return
+    fi
+  done
   local from_node
   from_node="$(node -e 'try { const p = require.resolve("@deepseek-ai/dsh/package.json"); console.log(require("path").dirname(p)); } catch(e) {}' 2>/dev/null || true)"
   if [ -n "$from_node" ] && [ -d "$from_node" ]; then
     echo "$from_node"
     return
   fi
-  echo "${global_nm}/@deepseek-ai/dsh"
+  echo "/usr/local/lib/node_modules/@deepseek-ai/dsh"
 }
 
 update_slot_status() {

@@ -161,8 +161,24 @@ function walkAndPatch(rootDir) {
           patchFile(fullPath, [
             {
               name: 'unlock SettingsScopeController host',
-              search: 'new SettingsScopeController(connection.api, spec, connection.isLoopback ? "host" : "remote")',
-              replace: 'new SettingsScopeController(connection.api, spec, "host" /* UNLOCKED */)',
+              search: 'connection.isLoopback ? "host" : "memory"',
+              replace: '"host" /* UNLOCKED */',
+            },
+            {
+              name: 'unlock SettingsScopeController host (remote fallback)',
+              search: 'connection.isLoopback ? "host" : "remote"',
+              replace: '"host" /* UNLOCKED */',
+            },
+          ]);
+        }
+
+        // Patch dsh-client-ui-settings-general
+        if (fullPath.includes('dsh-client-ui-settings-general')) {
+          patchFile(fullPath, [
+            {
+              name: 'unlock documentController host',
+              search: 'const documentController = connection.isLoopback ? new SettingsDocumentStore',
+              replace: 'const documentController = /* UNLOCKED */ new SettingsDocumentStore',
             },
           ]);
         }
@@ -224,7 +240,7 @@ function walkAndPatch(rootDir) {
             {
               name: 'append served namespaces',
               search: 'this.served = response.result.value.namespaces.map((view) => view.ns);',
-              replace: 'this.served = response.result.value.namespaces.map((view) => view.ns); /* UNLOCKED_SERVED */ if (!this.served.includes("web-search-selector")) this.served.push("web-search-selector"); if (!this.served.includes("llm-antigravity")) this.served.push("llm-antigravity");',
+              replace: 'this.served = response.result.value.namespaces.map((view) => view.ns); /* UNLOCKED_SERVED */ ["web-search-selector", "llm-antigravity", "image-gen-antigravity", "web-search-antigravity", "fail-soft", "cloudflare-tunnel"].forEach(ns => { if (!this.served.includes(ns)) this.served.push(ns); });',
             },
             {
               name: 'unlock SettingsScopeController ready status',
