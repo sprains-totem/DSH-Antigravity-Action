@@ -42,6 +42,7 @@ export function App(): VNode {
       {/* 2. Trajectory Timeline & Chat View */}
       <TrajectoryTimeline
         turns={store.turns}
+        isGenerating={store.isGenerating}
         onToolClick={(tool) => store.openToolInspector(tool)}
       />
 

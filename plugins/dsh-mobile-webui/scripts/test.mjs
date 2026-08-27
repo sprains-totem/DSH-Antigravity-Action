@@ -5,13 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const TARGET_URL = 'http://127.0.0.1:3080/mobile/index.html';
-const VIEWPORT = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 
 async function runTest() {
   console.log('🚀 [Test] Starting Headless Chrome Automated Test for DSH Mobile WebUI...');
 
   const tmpDir = await mkdtemp(join(tmpdir(), 'dsh-mobile-test-'));
-  const port = 9222;
+  const port = 9225;
 
   const chromeProc = spawn('google-chrome', [
     '--headless=new',
@@ -66,20 +65,9 @@ async function runTest() {
     });
   };
 
-  const evalJs = async (expr) => {
-    const res = await send('Runtime.evaluate', {
-      expression: expr,
-      returnByValue: true,
-      awaitPromise: true,
-    });
-    return res.result?.value;
-  };
-
   try {
-    // 1. Create mobile page
     const target = await send('Target.createTarget', { url: 'about:blank' });
-    const pageWsUrl = `ws://127.0.0.1:${port}/devtools/page/${target.targetId}`;
-    const pageWs = new WebSocket(pageWsUrl);
+    const pageWs = new WebSocket(`ws://127.0.0.1:${port}/devtools/page/${target.targetId}`);
     await once(pageWs, 'open');
 
     let pReqId = 1;
@@ -128,12 +116,12 @@ async function runTest() {
       mobile: true,
     });
 
-    // 2. Pre-seed active session in localStorage
+    // 1. Pre-seed active session in localStorage
     await pSend('Page.addScriptToEvaluateOnNewDocument', {
       source: 'localStorage.setItem("dsh_mobile_active_session", "session-690eaa49-fa51-421b-8f6a-9f9db1846f30");'
     });
 
-    // 3. Navigate to /mobile/index.html
+    // 2. Navigate to /mobile/index.html
     console.log(`🧭 [Test] Navigating to ${TARGET_URL}...`);
     await pSend('Page.navigate', { url: TARGET_URL });
 
@@ -157,8 +145,7 @@ async function runTest() {
 
     // Assertion 3: State store initialized
     const connState = await pEval('window.__DSH_STATE__ ? window.__DSH_STATE__.connectionState : "checking DOM"');
-    const sessionsCount = await pEval('document.querySelectorAll(".session-item").length');
-    console.log(`📶 [Assertion 3] Connection indicator rendered`);
+    console.log(`📶 [Assertion 3] Connection state: ${connState}`);
 
     // Assertion 4: Open Session Drawer
     console.log('📲 [Assertion 4] Testing Session Drawer interaction...');
@@ -174,7 +161,7 @@ async function runTest() {
 
     // Assertion 5: Open Model Picker
     console.log('🤖 [Assertion 5] Testing Model Picker Sheet interaction...');
-    await pEval('document.querySelector(".chip-btn")?.click()');
+    await pEval('document.querySelectorAll(".chip-btn")[1]?.click()');
     await new Promise((r) => setTimeout(r, 300));
     const modelSheetOpen = await pEval('Boolean(document.querySelector(".sheet-card"))');
     console.log(`  -> Model Sheet open: ${modelSheetOpen}`);
@@ -184,13 +171,32 @@ async function runTest() {
     await pEval('document.querySelector(".sheet-backdrop")?.click()');
     await new Promise((r) => setTimeout(r, 300));
 
-    // Assertion 6: Check trajectory cards if available or test timeline view
+    // Assertion 6: Check Accordion Default Collapsed Behavior
     const turnsCount = await pEval('document.querySelectorAll(".turn-container").length');
-    const trajectoryCount = await pEval('document.querySelectorAll(".trajectory-step-card").length');
-    console.log(`📊 [Assertion 6] Rendered Turns: ${turnsCount}, Trajectory Step Cards: ${trajectoryCount}`);
+    const accordionCount = await pEval('document.querySelectorAll(".process-accordion").length');
+    const collapsedCount = await pEval('document.querySelectorAll(".process-accordion.collapsed").length');
+    const visibleCardsBefore = await pEval('document.querySelectorAll(".trajectory-step-card").length');
+    console.log(`📊 [Assertion 6] Rendered Turns: ${turnsCount}, Accordions: ${accordionCount}, Collapsed By Default: ${collapsedCount}/${accordionCount}, Visible Tool Cards: ${visibleCardsBefore}`);
 
-    if (trajectoryCount > 0) {
-      console.log('🔍 [Assertion 7] Testing Tool Detail Bottom Sheet Inspector...');
+    if (accordionCount > 0 && collapsedCount !== accordionCount) {
+      throw new Error(`Expected all accordions to be collapsed by default, but found ${accordionCount - collapsedCount} expanded`);
+    }
+
+    // Assertion 7: Expand Accordion and Click Trajectory Card
+    if (accordionCount > 0) {
+      console.log('📂 [Assertion 7] Testing Expanding Accordion and Inspecting Tool Call...');
+      // Click first accordion header to expand
+      await pEval('document.querySelector(".process-accordion-header")?.click()');
+      await new Promise((r) => setTimeout(r, 300));
+
+      const isExpanded = await pEval('Boolean(document.querySelector(".process-accordion.expanded"))');
+      const visibleCardsAfter = await pEval('document.querySelectorAll(".trajectory-step-card").length');
+      console.log(`  -> Accordion expanded: ${isExpanded}, Visible Tool Cards now: ${visibleCardsAfter}`);
+      if (!isExpanded || visibleCardsAfter === 0) {
+        throw new Error('Accordion failed to expand tool cards');
+      }
+
+      // Click first tool card to open Bottom Sheet Inspector
       await pEval('document.querySelector(".trajectory-step-card")?.click()');
       await new Promise((r) => setTimeout(r, 300));
       const toolSheetOpen = await pEval('Boolean(document.querySelector(".sheet-card"))');
@@ -201,6 +207,13 @@ async function runTest() {
       // Close tool inspector
       await pEval('document.querySelector(".sheet-backdrop")?.click()');
       await new Promise((r) => setTimeout(r, 300));
+
+      // Click accordion header again to re-collapse
+      await pEval('document.querySelector(".process-accordion-header")?.click()');
+      await new Promise((r) => setTimeout(r, 300));
+      const reCollapsed = await pEval('Boolean(document.querySelector(".process-accordion.collapsed"))');
+      console.log(`  -> Accordion re-collapsed: ${reCollapsed}`);
+      if (!reCollapsed) throw new Error('Accordion failed to re-collapse');
     }
 
     // Check JS Errors

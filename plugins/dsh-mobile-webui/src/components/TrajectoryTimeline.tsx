@@ -2,14 +2,15 @@ import { h, VNode } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { TurnRecord, ToolExecution } from '../store/types';
 import { UserMessageBubble, AssistantMessageBubble } from './MessageBubble';
-import { ReasoningView } from './ReasoningView';
-import { TrajectoryCard } from './TrajectoryCard';
+import { ExecutionProcessAccordion } from './ExecutionProcessAccordion';
 
 export function TrajectoryTimeline({
   turns,
+  isGenerating,
   onToolClick,
 }: {
   turns: TurnRecord[];
+  isGenerating?: boolean;
   onToolClick: (tool: ToolExecution) => void;
 }): VNode {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -20,7 +21,7 @@ export function TrajectoryTimeline({
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [turns]);
+  }, [turns, isGenerating]);
 
   if (!turns || turns.length === 0) {
     return (
@@ -36,53 +37,43 @@ export function TrajectoryTimeline({
 
   return (
     <div class="chat-container" ref={scrollRef}>
-      {turns.map((turn, tIdx) => (
-        <div key={tIdx} class="turn-container">
-          {/* 1. User Message */}
-          {turn.userMessage && (
-            <UserMessageBubble
-              text={turn.userMessage.text}
-              images={turn.userMessage.images}
-              timestamp={turn.userMessage.timestamp}
-              status={turn.userMessage.status}
-            />
-          )}
+      {turns.map((turn, tIdx) => {
+        const isLastTurn = tIdx === turns.length - 1;
+        const lastStep = turn.steps.length > 0 ? turn.steps[turn.steps.length - 1] : null;
 
-          {/* 2. Steps Execution Sequence */}
-          {turn.steps.map((step, sIdx) => (
-            <div key={sIdx} class="step-container">
-              {/* Reasoning Block */}
-              {step.reasoning && (
-                <ReasoningView
-                  text={step.reasoning}
-                  isStreaming={step.isReasoningStreaming}
-                />
-              )}
+        return (
+          <div key={tIdx} class="turn-container">
+            {/* 1. User Message */}
+            {turn.userMessage && (
+              <UserMessageBubble
+                text={turn.userMessage.text}
+                images={turn.userMessage.images}
+                timestamp={turn.userMessage.timestamp}
+                status={turn.userMessage.status}
+              />
+            )}
 
-              {/* Tool Execution Cards */}
-              {step.toolCalls && step.toolCalls.length > 0 && (
-                <div style="display: flex; flex-direction: column; gap: 6px; margin: 4px 0;">
-                  {step.toolCalls.map((tool, toolIdx) => (
-                    <TrajectoryCard
-                      key={tool.callId || toolIdx}
-                      tool={tool}
-                      onClick={onToolClick}
-                    />
-                  ))}
-                </div>
-              )}
+            {/* 2. Intermediate Execution Steps (Folded by Default!) */}
+            {turn.steps.length > 0 && (
+              <ExecutionProcessAccordion
+                steps={turn.steps}
+                status={turn.status}
+                isTurnGenerating={isLastTurn && isGenerating}
+                onToolClick={onToolClick}
+                defaultExpanded={false}
+              />
+            )}
 
-              {/* Assistant Reply Text */}
-              {step.assistantText && (
-                <AssistantMessageBubble
-                  text={step.assistantText}
-                  isStreaming={step.isTextStreaming}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+            {/* 3. Final Assistant Reply */}
+            {lastStep && (lastStep.assistantText || lastStep.isTextStreaming) && (
+              <AssistantMessageBubble
+                text={lastStep.assistantText}
+                isStreaming={lastStep.isTextStreaming}
+              />
+            )}
+          </div>
+        );
+      })}
       <div ref={bottomRef} style="height: 1px;" />
     </div>
   );
