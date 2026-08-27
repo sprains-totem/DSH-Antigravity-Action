@@ -177,8 +177,8 @@ function walkAndPatch(rootDir) {
           patchFile(fullPath, [
             {
               name: 'unlock documentController host',
-              search: 'const documentController = connection.isLoopback ? new SettingsDocumentStore',
-              replace: 'const documentController = /* UNLOCKED */ new SettingsDocumentStore',
+              search: 'connection.isLoopback ? new SettingsDocumentStore',
+              replace: 'true /* UNLOCKED */ ? new SettingsDocumentStore',
             },
           ]);
         }
