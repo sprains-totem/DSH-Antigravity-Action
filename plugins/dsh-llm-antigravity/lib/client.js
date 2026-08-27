@@ -98,7 +98,13 @@
 		perModelRemHeader: "Remaining %",
 		perModelCostHeader: "Used ($)",
 		perModelTotalHeader: "Est. Total ($)",
-		perModelRemValHeader: "Est. Remaining ($)"
+		perModelRemValHeader: "Est. Remaining ($)",
+
+		// Delta Calibration
+		deltaModeBadge: "Delta Calibration",
+		deltaModeHint: "Initial quota was non-full. Extrapolating via marginal quota deduction.",
+		setBaselineBtn: "Set Current as Baseline",
+		baselineSetToast: "Current quota set as calibration baseline"
 	};
 
 	const zh = {
@@ -197,7 +203,13 @@
 		perModelRemHeader: "剩余比例",
 		perModelCostHeader: "已消耗 ($)",
 		perModelTotalHeader: "估算总额度 ($)",
-		perModelRemValHeader: "估算剩余 ($)"
+		perModelRemValHeader: "估算剩余 ($)",
+
+		// Delta Calibration
+		deltaModeBadge: "增量差分校准",
+		deltaModeHint: "接入时初始额度非满额，系统自动依据本地实际产生的额度变化差分精准推算。",
+		setBaselineBtn: "设当前为测算基准",
+		baselineSetToast: "已记录当前剩余比例为新测算基准点"
 	};
 
 	const DEFAULT_MODEL_PRICING = {
@@ -319,6 +331,17 @@
 			const [selectedGroupFilter, setSelectedGroupFilter] = react.useState("all"); // 'all' | 'gemini' | '3p'
 			const [showAllCatalogModels, setShowAllCatalogModels] = react.useState(false);
 			const [pricingSavedToast, setPricingSavedToast] = react.useState(false);
+			const [baselineToast, setBaselineToast] = react.useState(false);
+
+			const [quotaBaselines, setQuotaBaselines] = react.useState(() => {
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						const saved = window.localStorage.getItem("antigravity_quota_baselines_v1");
+						if (saved) return JSON.parse(saved);
+					}
+				} catch (e) {}
+				return {};
+			});
 
 			const [pricing, setPricing] = react.useState(() => {
 				try {
@@ -371,6 +394,55 @@
 				setPricingSavedToast(true);
 				setTimeout(() => setPricingSavedToast(false), 2000);
 			};
+
+			const handleSetCurrentAsBaseline = (bucketId, fraction, resetTime) => {
+				if (!bucketId) return;
+				const next = {
+					...quotaBaselines,
+					[bucketId]: {
+						resetTime: resetTime || "",
+						baselineFraction: typeof fraction === "number" ? fraction : 1.0,
+						firstSeenTime: Date.now()
+					}
+				};
+				setQuotaBaselines(next);
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						window.localStorage.setItem("antigravity_quota_baselines_v1", JSON.stringify(next));
+					}
+				} catch (e) {}
+				setBaselineToast(true);
+				setTimeout(() => setBaselineToast(false), 2000);
+			};
+
+			// Automatically register initial quota baseline if not yet recorded for this cycle
+			react.useEffect(() => {
+				if (!quotaData || !Array.isArray(quotaData.groups)) return;
+				let changed = false;
+				const next = { ...quotaBaselines };
+				for (const g of quotaData.groups) {
+					for (const b of (g.buckets || [])) {
+						if (!b.bucketId) continue;
+						const cur = next[b.bucketId];
+						if (!cur || cur.resetTime !== b.resetTime) {
+							next[b.bucketId] = {
+								resetTime: b.resetTime,
+								baselineFraction: typeof b.remainingFraction === "number" ? b.remainingFraction : 1.0,
+								firstSeenTime: Date.now()
+							};
+							changed = true;
+						}
+					}
+				}
+				if (changed) {
+					setQuotaBaselines(next);
+					try {
+						if (typeof window !== "undefined" && window.localStorage) {
+							window.localStorage.setItem("antigravity_quota_baselines_v1", JSON.stringify(next));
+						}
+					} catch (e) {}
+				}
+			}, [quotaData, quotaBaselines]);
 
 			const fetchQuota = react.useCallback(async (force = false) => {
 				if (!state.tokenConfigured) return;
@@ -616,10 +688,37 @@
 			const usedFraction = typeof bucketRemainingFraction === "number" ? Math.max(0, 1 - bucketRemainingFraction) : null;
 			const usedPct = usedFraction !== null ? Math.round(usedFraction * 1000) / 10 : null;
 
+			// Delta calibration mode (handles non-full initial quota at startup)
+			let isDeltaMode = false;
+			let baselineFraction = null;
+			let deltaFraction = null;
+			let deltaUsedPct = null;
+
+			if (targetBucket && targetBucket.bucketId) {
+				const bId = targetBucket.bucketId;
+				const baseInfo = quotaBaselines[bId];
+				if (baseInfo && baseInfo.resetTime === bucketResetTime && typeof baseInfo.baselineFraction === "number") {
+					baselineFraction = baseInfo.baselineFraction;
+					// If baseline started below 99.5%, use marginal delta deduction
+					if (baselineFraction < 0.995 && typeof bucketRemainingFraction === "number") {
+						deltaFraction = Math.max(0, baselineFraction - bucketRemainingFraction);
+						if (deltaFraction > 0.0001) {
+							isDeltaMode = true;
+							deltaUsedPct = Math.round(deltaFraction * 1000) / 10;
+						}
+					}
+				}
+			}
+
 			let estTotalQuotaUsd = null;
 			let estRemainingQuotaUsd = null;
 
-			if (usedFraction !== null && usedFraction > 0.0001) {
+			if (isDeltaMode && deltaFraction !== null && deltaFraction > 0.0001) {
+				if (totalPeriodUsdCost > 0) {
+					estTotalQuotaUsd = totalPeriodUsdCost / deltaFraction;
+					estRemainingQuotaUsd = estTotalQuotaUsd * (bucketRemainingFraction ?? 0);
+				}
+			} else if (usedFraction !== null && usedFraction > 0.0001) {
 				if (totalPeriodUsdCost > 0) {
 					estTotalQuotaUsd = totalPeriodUsdCost / usedFraction;
 					estRemainingQuotaUsd = estTotalQuotaUsd * (bucketRemainingFraction ?? 0);
@@ -1284,6 +1383,25 @@
 													(0, react_jsx_runtime.jsx)("button", {
 														type: "button",
 														style: {
+															padding: "4px 8px",
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															fontSize: 11,
+															color: "var(--dsw-alias-label-secondary, #4b5563)",
+															cursor: "pointer"
+														},
+														title: t("setBaselineBtn"),
+														onClick: () => {
+															if (targetBucket && targetBucket.bucketId) {
+																handleSetCurrentAsBaseline(targetBucket.bucketId, targetBucket.remainingFraction, targetBucket.resetTime);
+															}
+														},
+														children: `📍 ${t("setBaselineBtn")}`
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
 															padding: "4px 10px",
 															borderRadius: 6,
 															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
@@ -1408,15 +1526,15 @@
 												children: [
 													(0, react_jsx_runtime.jsx)("div", {
 														style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginBottom: 4 },
-														children: activeValuationPeriod === "all" ? t("totalRequests") : t("quotaConsumedPct")
+														children: activeValuationPeriod === "all" ? t("totalRequests") : (isDeltaMode ? `Δ ${t("quotaConsumedPct")}` : t("quotaConsumedPct"))
 													}),
 													(0, react_jsx_runtime.jsx)("div", {
 														style: { fontSize: 18, fontWeight: 700, color: activeValuationPeriod === "all" ? "var(--dsw-alias-label-primary, #111827)" : (usedPct && usedPct > 80 ? "#dc2626" : "var(--dsw-alias-label-primary, #111827)"), marginBottom: 4 },
-														children: activeValuationPeriod === "all" ? `${usageData?.summary?.totalRequests || 0} 次` : (usedPct !== null ? `${usedPct}%` : "—")
+														children: activeValuationPeriod === "all" ? `${usageData?.summary?.totalRequests || 0} 次` : (isDeltaMode ? `Δ${deltaUsedPct}%` : (usedPct !== null ? `${usedPct}%` : "—"))
 													}),
 													(0, react_jsx_runtime.jsx)("div", {
 														style: { fontSize: 10, color: "var(--dsw-alias-label-secondary, #6b7280)" },
-														children: activeValuationPeriod === "all" ? `${formatTokens(usageData?.summary?.totalTokens || 0)} Total Tokens` : (remainingPct !== null ? `${t("remaining")}: ${remainingPct}%` : "—")
+														children: activeValuationPeriod === "all" ? `${formatTokens(usageData?.summary?.totalTokens || 0)} Total Tokens` : (isDeltaMode ? `基准: ${(baselineFraction*100).toFixed(1)}% → 当前: ${remainingPct}%` : (remainingPct !== null ? `${t("remaining")}: ${remainingPct}%` : "—"))
 													})
 												]
 											}),
@@ -1426,27 +1544,36 @@
 												style: {
 													padding: "12px",
 													borderRadius: 8,
-													background: "#eff6ff",
-													border: "1px solid #bfdbfe",
+													background: isDeltaMode ? "#fdf4ff" : "#eff6ff",
+													border: isDeltaMode ? "1px solid #f0abfc" : "1px solid #bfdbfe",
 													display: "flex",
 													flexDirection: "column",
 													justifyContent: "space-between"
 												},
 												children: [
 													(0, react_jsx_runtime.jsxs)("div", {
-														style: { fontSize: 11, color: "#1e40af", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 },
+														style: { fontSize: 11, color: isDeltaMode ? "#86198f" : "#1e40af", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" },
 														children: [
-															(0, react_jsx_runtime.jsx)("span", { children: "🔮" }),
-															(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600 }, children: t("estTotalQuotaTitle") })
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { display: "flex", alignItems: "center", gap: 4 },
+																children: [
+																	(0, react_jsx_runtime.jsx)("span", { children: "🔮" }),
+																	(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600 }, children: t("estTotalQuotaTitle") })
+																]
+															}),
+															isDeltaMode ? (0, react_jsx_runtime.jsx)("span", {
+																style: { fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#fae8ff", color: "#a21caf", fontWeight: 600 },
+																children: t("deltaModeBadge")
+															}) : null
 														]
 													}),
 													(0, react_jsx_runtime.jsx)("div", {
-														style: { fontSize: 18, fontWeight: 700, color: "#1d4ed8", marginBottom: 4 },
+														style: { fontSize: 18, fontWeight: 700, color: isDeltaMode ? "#701a75" : "#1d4ed8", marginBottom: 4 },
 														children: estTotalQuotaUsd !== null ? formatCurrency(estTotalQuotaUsd) : (usedPct === 0 ? "100% 完整" : "待推算")
 													}),
 													(0, react_jsx_runtime.jsx)("div", {
-														style: { fontSize: 10, color: "#3b82f6" },
-														children: t("estFormulaHint")
+														style: { fontSize: 10, color: isDeltaMode ? "#a21caf" : "#3b82f6" },
+														children: isDeltaMode ? `${t("deltaModeHint")} (Δ${deltaUsedPct}%)` : t("estFormulaHint")
 													})
 												]
 											}),
