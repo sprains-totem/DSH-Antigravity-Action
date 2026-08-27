@@ -83,9 +83,9 @@ const DEFAULT_MODELS = [
   { id: 'gemini-3.7-flash-low', name: 'Gemini 3.7 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'gemini-3.7-flash-tiered', name: 'Gemini 3.7 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'gemini-pro-agent', name: 'Gemini Pro Agent', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
-  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video'] },
-  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video'] },
-  { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B Medium', contextWindow: 128_000, maxTokens: 65536, inputModalities: ['text'] },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 1_000_000, maxTokens: 64000, inputModalities: ['text', 'image', 'video'] },
+  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', contextWindow: 1_000_000, maxTokens: 64000, inputModalities: ['text', 'image', 'video'] },
+  { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B Medium', contextWindow: 128_000, maxTokens: 16384, inputModalities: ['text'] },
 ]
 
 const catalogModel = z.object({
@@ -1045,9 +1045,42 @@ function sanitizeForOpenApi(schema) {
   return result
 }
 
+const MODEL_ALIASES = {
+  'gemini-3.1-pro-high': 'gemini-pro-agent',
+  'gemini-3.1-pro': 'gemini-pro-agent',
+  'gemini-3-pro': 'gemini-pro-agent',
+  'claude-opus-4-6': 'claude-opus-4-6-thinking',
+  'claude-opus-4-5': 'claude-opus-4-6-thinking',
+  'claude-opus-4-5-thinking': 'claude-opus-4-6-thinking',
+  'claude-sonnet-4-5': 'claude-sonnet-4-6',
+  'claude-3-5-sonnet': 'claude-sonnet-4-6',
+  'claude-3-7-sonnet': 'claude-sonnet-4-6',
+  'claude-haiku-4-5': 'claude-sonnet-4-6',
+}
+
+function resolveCanonicalModel(modelId) {
+  return MODEL_ALIASES[modelId] || modelId
+}
+
+function maxOutputTokensLimit(model) {
+  const lower = model.toLowerCase()
+  if (lower.startsWith('claude-')) return 64000
+  if (lower.startsWith('gpt-oss-')) return 16384
+  if (lower.includes('flash-lite') || lower.includes('flash-image')) return 16384
+  if (lower.includes('pro')) return 65535
+  return 65536
+}
+
+function supportsThinkingConfig(model) {
+  const lower = model.toLowerCase()
+  if (lower.startsWith('gpt-oss-')) return false
+  return true
+}
+
 /** Build the wrapped v1internal streamGenerateContent body (reference wrap_request_v2). */
 async function serializeRequest(options, project, attachments) {
-  const contents = await serializeMessages(options.messages, options.sessionId, options.model, attachments)
+  const model = resolveCanonicalModel(options.model)
+  const contents = await serializeMessages(options.messages, options.sessionId, model, attachments)
   const inner = {}
   if (options.system !== undefined && options.system.length > 0) {
     inner.systemInstruction = { parts: [{ text: options.system }] }
@@ -1062,13 +1095,18 @@ async function serializeRequest(options, project, attachments) {
     }]
   }
   const generationConfig = {}
-  if (options.maxTokens !== undefined) generationConfig.maxOutputTokens = options.maxTokens
+  const maxLimit = maxOutputTokensLimit(model)
+  let maxOutputTokens = options.maxTokens !== undefined ? options.maxTokens : maxLimit
+  if (maxOutputTokens > maxLimit) maxOutputTokens = maxLimit
+  generationConfig.maxOutputTokens = maxOutputTokens
+
   if (options.temperature !== undefined) generationConfig.temperature = options.temperature
   if (options.stop !== undefined && options.stop.length > 0) generationConfig.stopSequences = options.stop
-  // Real Antigravity agent requests always send the explicit thinking config
-  // (captured: {"maxOutputTokens":65536,"thinkingConfig":{"includeThoughts":true,"thinkingBudget":-1}});
-  // includeThoughts streams live thought events, thinkingBudget:-1 = unlimited.
-  generationConfig.thinkingConfig = { includeThoughts: true, thinkingBudget: -1 }
+  // Real Antigravity agent requests send the explicit thinking config for models that support it
+  // (gpt-oss does not accept thinkingConfig and returns 400).
+  if (supportsThinkingConfig(model)) {
+    generationConfig.thinkingConfig = { includeThoughts: true, thinkingBudget: -1 }
+  }
   if (Object.keys(generationConfig).length > 0) inner.generationConfig = generationConfig
   if (options.sessionId !== undefined) inner.sessionId = String(options.sessionId)
   inner.contents = contents
@@ -1076,7 +1114,7 @@ async function serializeRequest(options, project, attachments) {
   return {
     project,
     request: inner,
-    model: options.model,
+    model,
     userAgent: 'antigravity',
     requestType: 'agent',
     // Real requestId: the client's heavy agent rounds use
