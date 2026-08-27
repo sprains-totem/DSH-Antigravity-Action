@@ -74,7 +74,7 @@ export function SettingsSheet({
         setRawNamespaces(res.namespaces);
 
         for (const ns of res.namespaces) {
-          const val = ns.user || ns.resolved || ns.base || {};
+          const val = ns.user || ns.value || ns.base || {};
           if (ns.ns === 'agent-default-model') {
             if (val.provider) setDefaultProvider(val.provider);
             if (val.model) setDefaultModel(val.model);
@@ -108,10 +108,22 @@ export function SettingsSheet({
   const updateNamespace = async (ns: string, patch: Record<string, any>) => {
     setSavingNs(ns);
     try {
-      await store.client.rpc('settings.update', {
-        ns,
-        patch,
-      });
+      try {
+        await store.client.rpc('settings.update', {
+          ns,
+          patch,
+        });
+      } catch {
+        const ops = Object.entries(patch).map(([k, v]) => ({
+          op: 'set' as const,
+          path: [k],
+          value: v,
+        }));
+        await store.client.rpc('settings.mutate', {
+          ns,
+          ops,
+        });
+      }
       showSavedToast();
       // Clear draft for this card
       setDraftEdits(prev => {
@@ -592,7 +604,7 @@ export function SettingsSheet({
                 rawNamespaces.map((nsItem) => {
                   const ns = nsItem.ns;
                   const isOpen = Boolean(openCards[ns]);
-                  const resolvedVal = nsItem.user || nsItem.resolved || nsItem.base || {};
+                  const resolvedVal = nsItem.user || nsItem.value || nsItem.base || {};
                   const stagedDraft = draftEdits[ns] || {};
                   const currentEffective = { ...resolvedVal, ...stagedDraft };
                   const isDirty = Object.keys(stagedDraft).length > 0;

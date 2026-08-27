@@ -644,26 +644,87 @@ class StateStore {
     }
   }
 
-  public async selectModel(modelId: string, provider = 'antigravity') {
-    if (!this.currentSessionId) return;
+  public async selectModel(modelId: string, provider = 'antigravity', effort?: string) {
+    this.currentModel = { provider, model: modelId };
+    this.isModelPickerOpen = false;
+    this.notify();
+
+    if (this.currentSessionId) {
+      try {
+        await this.client.rpc('session.selectModel', {
+          sessionId: this.currentSessionId,
+          provider,
+          model: modelId,
+          ...(effort ? { reasoningEffort: effort } : {}),
+        });
+      } catch (e) {
+        console.error('[mobile-state] session.selectModel error:', e);
+      }
+    }
+
+    // Also persist choice to global default settings
     try {
-      await this.client.rpc('session.selectModel', {
-        sessionId: this.currentSessionId,
-        provider,
-        model: modelId,
+      await this.client.rpc('settings.update', {
+        ns: 'agent-default-model',
+        patch: {
+          provider,
+          model: modelId,
+          ...(effort ? { reasoningEffort: effort } : {}),
+        },
       });
-      this.currentModel = { provider, model: modelId };
-      this.isModelPickerOpen = false;
+    } catch {
+      try {
+        await this.client.rpc('settings.mutate', {
+          ns: 'agent-default-model',
+          ops: [
+            { op: 'set', path: ['provider'], value: provider },
+            { op: 'set', path: ['model'], value: modelId },
+            ...(effort ? [{ op: 'set' as const, path: ['reasoningEffort'], value: effort }] : []),
+          ],
+        });
+      } catch (e) {
+        console.error('[mobile-state] settings default-model update error:', e);
+      }
+    }
+  }
+
+  public async renameSession(sessionId: string, title: string): Promise<boolean> {
+    try {
+      const res = await this.client.rpc<{ title: string; seq?: number }>('session.rename', {
+        sessionId,
+        title,
+      });
+      const acceptedTitle = res?.title || title;
+      const s = this.sessions.find(item => item.sessionId === sessionId);
+      if (s) s.title = acceptedTitle;
       this.notify();
+      return true;
     } catch (e) {
-      console.error('[mobile-state] selectModel error:', e);
+      console.error('[mobile-state] renameSession error:', e);
+      return false;
     }
   }
 
   public async setPermissionPreset(preset: string) {
     this.currentPermission = preset;
     this.notify();
-    await this.sendPrompt(`/permission ${preset}`);
+
+    // 1. Write to settings service
+    try {
+      await this.client.rpc('settings.update', {
+        ns: 'permission',
+        patch: { defaultPreset: preset },
+      });
+    } catch {
+      try {
+        await this.client.rpc('settings.mutate', {
+          ns: 'permission',
+          ops: [{ op: 'set', path: ['defaultPreset'], value: preset }],
+        });
+      } catch (e) {
+        console.error('[mobile-state] setPermissionPreset error:', e);
+      }
+    }
   }
 
   public openToolInspector(tool: ToolExecution) {

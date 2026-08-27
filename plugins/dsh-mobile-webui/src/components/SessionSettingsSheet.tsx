@@ -53,15 +53,7 @@ export function SessionSettingsSheet({
     }
     setSavingTitle(true);
     try {
-      if (currentSession) {
-        currentSession.title = trimmed;
-      }
-      await store.client.rpc('session.prompt', {
-        sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: `/title ${trimmed}` }],
-      }).catch(() => {});
-      store.refreshSessions();
+      await store.renameSession(sessionId, trimmed);
     } catch (e) {
       console.error('[SessionSettings] failed to save title:', e);
     } finally {
@@ -263,7 +255,7 @@ export function SessionSettingsSheet({
                   <div
                     key={m.id}
                     class="settings-row"
-                    onClick={() => store.selectModel(m.id, m.prov)}
+                    onClick={() => store.selectModel(m.id, m.prov, reasoningEffort)}
                   >
                     <div>
                       <div class="settings-row-label">{m.name}</div>
@@ -291,7 +283,16 @@ export function SessionSettingsSheet({
                 <div
                   key={eff.id}
                   class="settings-row"
-                  onClick={() => setReasoningEffort(eff.id)}
+                  onClick={() => {
+                    setReasoningEffort(eff.id);
+                    let targetModel = store.currentModel.model;
+                    if (targetModel.startsWith('gemini-3.7-flash-')) {
+                      targetModel = `gemini-3.7-flash-${eff.id}`;
+                    } else if (targetModel.startsWith('gemini-3.6-flash-')) {
+                      targetModel = `gemini-3.6-flash-${eff.id}`;
+                    }
+                    store.selectModel(targetModel, store.currentModel.provider, eff.id);
+                  }}
                 >
                   <div>
                     <div class="settings-row-label">{eff.name}</div>
