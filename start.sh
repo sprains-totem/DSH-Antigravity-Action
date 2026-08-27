@@ -7,8 +7,6 @@
 # 规避 GitHub Actions 默认限制修改 .github/workflows/*.yml 的安全策略。
 # ==============================================================================
 
-set -eo pipefail
-
 DSH_PORT="${DSH_PORT:-3080}"
 DSH_HOME_DIR="${HOME}/.dsh"
 SLOT_A_DIR="${DSH_HOME_DIR}/slots/slot-a"
@@ -233,8 +231,14 @@ deploy_plugins() {
         if [ -f "$p/build.js" ] && command -v esbuild &> /dev/null; then
           (cd "$p" && NODE_PATH="${PROFILE_WEB_DIR}/node_modules:${global_nm}:${dsh_root}/node_modules" node build.js >/dev/null 2>&1 || true)
         fi
-        local frontend_dist
-        frontend_dist="$(find "$global_nm" "$dsh_root" -type d -path "*/@deepseek-ai/dsh-web-frontend/dist" 2>/dev/null | head -n 1)"
+        local frontend_dist=""
+        if [ -d "${dsh_root}/node_modules/@deepseek-ai/dsh-web-frontend/dist" ]; then
+          frontend_dist="${dsh_root}/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+        elif [ -d "${global_nm}/@deepseek-ai/dsh-web-frontend/dist" ]; then
+          frontend_dist="${global_nm}/@deepseek-ai/dsh-web-frontend/dist"
+        else
+          frontend_dist="$(node -e 'try { const p = require.resolve("@deepseek-ai/dsh-web-frontend/package.json", { paths: [process.argv[1], process.argv[2]] }); console.log(require("path").dirname(p) + "/dist"); } catch(e) {}' "$global_nm" "$dsh_root" 2>/dev/null || true)"
+        fi
         if [ -d "$p/dist" ] && [ -n "$frontend_dist" ] && [ -d "$frontend_dist" ]; then
           sudo ln -sfn "$(realpath "$p/dist")" "$frontend_dist/mobile" 2>/dev/null || true
         fi
