@@ -29,8 +29,13 @@ fi
 
 if ! command -v dsh &> /dev/null; then
   echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh)..."
-  sudo npm install -g @deepseek-ai/dsh
+  sudo npm install -g @deepseek-ai/dsh esbuild preact marked
   sudo chown -R $(whoami) /usr/local/lib/node_modules
+fi
+
+if ! command -v esbuild &> /dev/null; then
+  echo "正在安装 esbuild 与移动端构建依赖..."
+  sudo npm install -g esbuild preact marked
 fi
 
 echo "=========================================================================="
@@ -104,6 +109,9 @@ deploy_plugins() {
 
       # 针对 dsh-mobile-webui 挂载至前端 dist/mobile 静态目录
       if [ "$pname" = "dsh-mobile-webui" ]; then
+        if [ -f "$p/build.js" ] && command -v esbuild &> /dev/null; then
+          (cd "$p" && NODE_PATH=/usr/local/lib/node_modules node build.js >/dev/null 2>&1 || true)
+        fi
         if [ -d "$p/dist" ] && [ -d "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist" ]; then
           sudo ln -sfn "$(realpath "$p/dist")" "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/mobile"
         fi
