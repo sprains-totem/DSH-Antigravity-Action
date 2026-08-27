@@ -316,7 +316,7 @@ EOF
 probe_dsh_health() {
   local pid="$1"
   local log_file="$2"
-  local max_wait=35
+  local max_wait=60
   local http_ready=false
 
   for i in $(seq 1 "$max_wait"); do
@@ -412,8 +412,8 @@ run_dsh() {
       local exit_code=$?
 
       log_guardian "🚨 [A/B 自愈守护] 警告：${active_slot} 实例未通过健康检查！(Exit Code: $exit_code)"
-      log_guardian "====== 异常日志截取 (最后 20 行) ======"
-      tail -n 20 "$CRASH_LOG" 2>/dev/null | while read -r line; do log_guardian "  $line"; done
+      log_guardian "====== 异常日志截取 (最后 100 行) ======"
+      tail -n 100 "$CRASH_LOG" 2>/dev/null | while read -r line; do log_guardian "  $line"; done
       log_guardian "======================================="
 
       if [ "$active_slot" = "slot-b" ]; then

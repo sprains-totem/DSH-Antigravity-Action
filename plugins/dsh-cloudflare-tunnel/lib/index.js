@@ -9,103 +9,10 @@ const NS = 'cloudflare-tunnel';
 const TUNNEL_URL_REGEX = /https:\/\/[-a-zA-Z0-9]+\.trycloudflare\.com/i;
 
 /**
- * 解除 DSH 原生来源与权限限制的核心引擎。
- * 消除外部/公网访问下的 "settings are unavailable in this browser"、403 Forbidden 与设置持久化限制。
+ * 解除 DSH 原生来源与权限限制（已由 unlock-dsh.mjs 在启动前处理，此处保留安全快速兼容声明）
  */
 export function liftDshRestrictions(logger) {
-  try {
-    const searchDirs = new Set([
-      '/usr/local/lib/node_modules',
-      '/usr/lib/node_modules',
-      path.join(process.env.HOME || '', '.dsh', 'profiles', 'web', 'node_modules'),
-      path.join(process.env.HOME || '', '.dsh', 'node_modules')
-    ]);
-
-    if (process.env.NODE_PATH) {
-      process.env.NODE_PATH.split(path.delimiter).forEach(p => {
-        if (p && !p.includes('plugins')) searchDirs.add(path.resolve(p));
-      });
-    }
-
-    function unlockFile(fullPath) {
-      if (fullPath.includes('dsh-cloudflare-tunnel') || fullPath.includes('/plugins/')) return;
-      try {
-        let code = readFileSync(fullPath, 'utf8');
-        let initialCode = code;
-
-        // 1. 服务端 index.js (PRIVILEGED_METHODS & isTrustedApiRequest)
-        if (code.includes('PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])')) {
-          code = code.replaceAll('PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])', 'false');
-        }
-
-        if (code.includes('interceptor.options.authority === "loopback" && !isTrustedApiRequest(request, [])')) {
-          code = code.replaceAll('interceptor.options.authority === "loopback" && !isTrustedApiRequest(request, [])', 'false');
-        }
-
-        if (code.includes('const trustedHosts = options.authority === "loopback" ? [] : this.trustedHosts;')) {
-          code = code.replaceAll('const trustedHosts = options.authority === "loopback" ? [] : this.trustedHosts;', 'const trustedHosts = this.trustedHosts;');
-        }
-
-        if (code.includes('function isTrustedApiRequest(request, trustedHosts) {') && !code.includes('/* UNLOCKED */')) {
-          code = code.replace(
-            'function isTrustedApiRequest(request, trustedHosts) {',
-            'function isTrustedApiRequest(request, trustedHosts) { return true; /* UNLOCKED */'
-          );
-        }
-
-        // 2. 客户端 client.js (isLoopback)
-        if (code.includes('function isLoopbackHostname(hostname) {') && !code.includes('return true; /* UNLOCKED */')) {
-          code = code.replace(
-            'function isLoopbackHostname(hostname) {',
-            'function isLoopbackHostname(hostname) { return true; /* UNLOCKED */'
-          );
-        }
-
-        if (code.includes('isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)')) {
-          code = code.replaceAll(
-            'isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)',
-            'isLoopback: true /* UNLOCKED */'
-          );
-        }
-
-        // 3. 设置持久化 (connection.isLoopback ? "host" : "remote" -> "host")
-        if (code.includes('connection.isLoopback ? "host" : "remote"')) {
-          code = code.replaceAll(
-            'connection.isLoopback ? "host" : "remote"',
-            '"host" /* UNLOCKED */'
-          );
-        }
-
-        if (code !== initialCode) {
-          writeFileSync(fullPath, code, 'utf8');
-          logger?.info?.(`[cloudflare-tunnel] Unlocked general DSH restrictions in: ${fullPath}`);
-        }
-      } catch (err) {
-        logger?.debug?.(`[cloudflare-tunnel] Could not patch ${fullPath}: ${err.message}`);
-      }
-    }
-
-    function walkDir(dir) {
-      if (!existsSync(dir)) return;
-      try {
-        const entries = readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (entry.name !== '.git' && entry.name !== 'plugins') walkDir(full);
-          } else if (entry.name.endsWith('.js') || entry.name.endsWith('.mjs')) {
-            unlockFile(full);
-          }
-        }
-      } catch {}
-    }
-
-    for (const d of searchDirs) {
-      if (existsSync(d)) walkDir(d);
-    }
-  } catch (err) {
-    logger?.warn?.(`[cloudflare-tunnel] liftDshRestrictions encountered an error: ${err.message}`);
-  }
+  // Unlocking is handled deterministically ahead-of-time by unlock-dsh.mjs
 }
 
 /**
