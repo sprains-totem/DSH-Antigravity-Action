@@ -114,10 +114,17 @@ const Config = z.object({
 // ---------------------------------------------------------------------------
 // Usage tracking and persistence
 // ---------------------------------------------------------------------------
-const dshUsageDir = process.env.USERPROFILE
-  ? path.join(process.env.USERPROFILE, '.dsh')
-  : process.cwd()
-const USAGE_FILE = path.join(dshUsageDir, 'antigravity_usage.json')
+function getUsageFilePath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE
+  if (homeDir) {
+    const dshPath = path.join(homeDir, '.dsh', 'antigravity_usage.json')
+    const cwdPath = path.join(process.cwd(), 'antigravity_usage.json')
+    if (fs.existsSync(dshPath)) return dshPath
+    if (fs.existsSync(cwdPath)) return cwdPath
+    return dshPath
+  }
+  return path.join(process.cwd(), 'antigravity_usage.json')
+}
 
 class UsageTracker {
   constructor() {
@@ -126,10 +133,13 @@ class UsageTracker {
   }
 
   load() {
+    const filePath = getUsageFilePath()
     try {
-      if (fs.existsSync(USAGE_FILE)) {
-        const raw = fs.readFileSync(USAGE_FILE, 'utf8')
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8')
         const data = JSON.parse(raw)
+        const recent = Array.isArray(data.recent) ? data.recent : []
+        const history = Array.isArray(data.history) && data.history.length > 0 ? data.history : [...recent]
         return {
           summary: {
             totalRequests: data.summary?.totalRequests || 0,
@@ -142,7 +152,8 @@ class UsageTracker {
           },
           byModel: data.byModel || {},
           daily: data.daily || {},
-          recent: Array.isArray(data.recent) ? data.recent : [],
+          recent,
+          history,
         }
       }
     } catch {}
@@ -159,6 +170,7 @@ class UsageTracker {
       byModel: {},
       daily: {},
       recent: [],
+      history: [],
     }
   }
 
@@ -167,8 +179,10 @@ class UsageTracker {
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
       try {
-        fs.mkdirSync(dshUsageDir, { recursive: true })
-        fs.writeFileSync(USAGE_FILE, JSON.stringify(this.stats, null, 2), 'utf8')
+        const filePath = getUsageFilePath()
+        const dir = path.dirname(filePath)
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(filePath, JSON.stringify(this.stats, null, 2), 'utf8')
       } catch {}
     }, 500)
   }
@@ -237,8 +251,7 @@ class UsageTracker {
     d.reasoningTokens += reasoningTokens
     d.totalTokens += totalTokens
 
-    // Recent list (keep latest 50)
-    this.stats.recent.unshift({
+    const recordEntry = {
       timestamp,
       model,
       inputTokens,
@@ -249,7 +262,24 @@ class UsageTracker {
       cacheSavingsRatio,
       durationMs,
       sessionId: sessionId ? String(sessionId) : undefined,
+    }
+
+    // History (retain 14 days of detailed records, capped at 20,000)
+    if (!Array.isArray(this.stats.history)) {
+      this.stats.history = Array.isArray(this.stats.recent) ? [...this.stats.recent] : []
+    }
+    this.stats.history.unshift(recordEntry)
+    const cutoffMs = Date.now() - (14 * 24 * 3600 * 1000)
+    this.stats.history = this.stats.history.filter((h) => {
+      const t = new Date(h.timestamp).getTime()
+      return !isNaN(t) && t >= cutoffMs
     })
+    if (this.stats.history.length > 20000) {
+      this.stats.history = this.stats.history.slice(0, 20000)
+    }
+
+    // Recent list (keep latest 50 for quick display)
+    this.stats.recent.unshift(recordEntry)
     if (this.stats.recent.length > 50) {
       this.stats.recent = this.stats.recent.slice(0, 50)
     }
@@ -257,12 +287,92 @@ class UsageTracker {
     this.scheduleSave()
   }
 
-  getStats() {
+  aggregateWindow(startTimeMs, endTimeMs) {
+    const byModel = {}
+    let totalRequests = 0
+    let totalInputTokens = 0
+    let totalOutputTokens = 0
+    let totalCacheReadTokens = 0
+    let totalReasoningTokens = 0
+
+    const list = this.stats.history && this.stats.history.length > 0
+      ? this.stats.history
+      : (this.stats.recent || [])
+
+    for (const item of list) {
+      const t = new Date(item.timestamp).getTime()
+      if (isNaN(t)) continue
+      if (t >= startTimeMs && t <= endTimeMs) {
+        const model = item.model || 'unknown'
+        if (!byModel[model]) {
+          byModel[model] = {
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+          }
+        }
+        const m = byModel[model]
+        m.requests++
+        m.inputTokens += (item.inputTokens || 0)
+        m.outputTokens += (item.outputTokens || 0)
+        m.cacheReadTokens += (item.cacheReadTokens || 0)
+        m.reasoningTokens += (item.reasoningTokens || 0)
+        m.totalTokens += ((item.inputTokens || 0) + (item.outputTokens || 0) + (item.reasoningTokens || 0))
+
+        totalRequests++
+        totalInputTokens += (item.inputTokens || 0)
+        totalOutputTokens += (item.outputTokens || 0)
+        totalCacheReadTokens += (item.cacheReadTokens || 0)
+        totalReasoningTokens += (item.reasoningTokens || 0)
+      }
+    }
+
+    const grossPrompt = totalInputTokens + totalCacheReadTokens
+    const cacheSavingsRate = grossPrompt > 0
+      ? `${(Math.round((totalCacheReadTokens / grossPrompt) * 1000) / 10).toFixed(1)}%`
+      : '0.0%'
+
+    return {
+      startTime: new Date(startTimeMs).toISOString(),
+      endTime: new Date(endTimeMs).toISOString(),
+      summary: {
+        totalRequests,
+        totalInputTokens,
+        totalOutputTokens,
+        totalCacheReadTokens,
+        totalReasoningTokens,
+        totalTokens: totalInputTokens + totalOutputTokens + totalReasoningTokens,
+        grossPromptTokens: grossPrompt,
+        cacheSavingsRate,
+      },
+      byModel,
+    }
+  }
+
+  getStats(options = {}) {
     const grossPrompt = this.stats.summary.totalInputTokens + this.stats.summary.totalCacheReadTokens
     const cacheSavingsRate = grossPrompt > 0
       ? `${(Math.round((this.stats.summary.totalCacheReadTokens / grossPrompt) * 1000) / 10).toFixed(1)}%`
       : '0.0%'
     const totalTokens = this.stats.summary.totalInputTokens + this.stats.summary.totalOutputTokens + this.stats.summary.totalReasoningTokens
+
+    const now = Date.now()
+
+    // 5h window: if resetTime is provided, calculate [resetTime - 5h, resetTime]; otherwise [now - 5h, now]
+    const resetTime5hMs = options.resetTime5h ? new Date(options.resetTime5h).getTime() : now
+    const end5h = !isNaN(resetTime5hMs) ? resetTime5hMs : now
+    const start5h = end5h - (5 * 3600 * 1000)
+
+    // Weekly window: if resetTime is provided, calculate [resetTime - 7d, resetTime]; otherwise [now - 7d, now]
+    const resetTimeWeeklyMs = options.resetTimeWeekly ? new Date(options.resetTimeWeekly).getTime() : now
+    const endWeekly = !isNaN(resetTimeWeeklyMs) ? resetTimeWeeklyMs : now
+    const startWeekly = endWeekly - (7 * 24 * 3600 * 1000)
+
+    const window5h = this.aggregateWindow(start5h, end5h)
+    const windowWeekly = this.aggregateWindow(startWeekly, endWeekly)
 
     return {
       summary: {
@@ -274,6 +384,11 @@ class UsageTracker {
       byModel: this.stats.byModel,
       daily: this.stats.daily,
       recent: this.stats.recent,
+      history: this.stats.history || this.stats.recent || [],
+      windows: {
+        '5h': window5h,
+        weekly: windowWeekly,
+      },
     }
   }
 
@@ -291,10 +406,13 @@ class UsageTracker {
       byModel: {},
       daily: {},
       recent: [],
+      history: [],
     }
     try {
-      fs.mkdirSync(dshUsageDir, { recursive: true })
-      fs.writeFileSync(USAGE_FILE, JSON.stringify(this.stats, null, 2), 'utf8')
+      const filePath = getUsageFilePath()
+      const dir = path.dirname(filePath)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(filePath, JSON.stringify(this.stats, null, 2), 'utf8')
     } catch {}
   }
 }
@@ -1733,8 +1851,10 @@ function apply(ctx, config) {
               res.end(JSON.stringify({ ok: true, message: 'Usage statistics reset' }))
               return
             }
+            const resetTime5h = url.searchParams.get('resetTime5h')
+            const resetTimeWeekly = url.searchParams.get('resetTimeWeekly')
             res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats() }))
+            res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats({ resetTime5h, resetTimeWeekly }) }))
             return
           }
 

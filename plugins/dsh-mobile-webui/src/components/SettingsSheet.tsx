@@ -46,7 +46,7 @@ export function SettingsSheet({
   const [rawNamespaces, setRawNamespaces] = useState<any[]>([]);
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({ 'llm-antigravity': true });
   const [draftEdits, setDraftEdits] = useState<Record<string, Record<string, any>>>({});
-  const [activePluginSubTab, setActivePluginSubTab] = useState<'quota' | 'usage' | 'config'>('quota');
+  const [activePluginSubTab, setActivePluginSubTab] = useState<'quota' | 'usage' | 'valuation' | 'config'>('quota');
 
   // Antigravity Live Dashboard states
   const [quotaData, setQuotaData] = useState<any>(null);
@@ -57,6 +57,22 @@ export function SettingsSheet({
   const [clearingUsage, setClearingUsage] = useState(false);
   const [draftToken, setDraftToken] = useState('');
   const [draftBaseUrl, setDraftBaseUrl] = useState('');
+  const [activeValPeriod, setActiveValPeriod] = useState<'5h' | 'weekly' | 'all'>('5h');
+  const [mobilePricing, setMobilePricing] = useState<Record<string, { input: number; output: number; cache: number }>>(() => {
+    try {
+      const saved = localStorage.getItem('antigravity_pricing_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      'gemini-3.7-flash-high': { input: 0.10, output: 0.40, cache: 0.025 },
+      'gemini-3.7-flash-medium': { input: 0.10, output: 0.40, cache: 0.025 },
+      'gemini-3.7-flash-low': { input: 0.10, output: 0.40, cache: 0.025 },
+      'gemini-2.5-pro': { input: 1.25, output: 5.00, cache: 0.3125 },
+      'gemini-2.5-flash': { input: 0.10, output: 0.40, cache: 0.025 },
+      'claude-sonnet-4-6': { input: 3.00, output: 15.00, cache: 0.30 },
+      'claude-opus-4-6-thinking': { input: 15.00, output: 75.00, cache: 1.50 },
+    };
+  });
 
   // UI status
   const [savingNs, setSavingNs] = useState<string | null>(null);
@@ -167,7 +183,7 @@ export function SettingsSheet({
       const res = await fetch('/api/antigravity/usage');
       if (res.ok) {
         const data = await res.json();
-        setUsageData(data);
+        setUsageData(data.stats || data);
       }
     } catch (err) {
       console.error('[Antigravity] usage fetch failed:', err);
@@ -180,7 +196,7 @@ export function SettingsSheet({
     if (!confirm('确定清空所有 Antigravity 历史调用统计记录吗？')) return;
     setClearingUsage(true);
     try {
-      await fetch('/api/antigravity/clear-usage', { method: 'POST' });
+      await fetch('/api/antigravity/usage', { method: 'DELETE' });
       await fetchAntigravityUsage();
     } catch (err) {
       console.error(err);
@@ -684,6 +700,12 @@ export function SettingsSheet({
                                   📈 用量统计
                                 </button>
                                 <button
+                                  class={`settings-tab-btn ${activePluginSubTab === 'valuation' ? 'active' : ''}`}
+                                  onClick={() => setActivePluginSubTab('valuation')}
+                                >
+                                  💰 额度估算
+                                </button>
+                                <button
                                   class={`settings-tab-btn ${activePluginSubTab === 'config' ? 'active' : ''}`}
                                   onClick={() => setActivePluginSubTab('config')}
                                 >
@@ -784,6 +806,219 @@ export function SettingsSheet({
                                   </div>
                                 </div>
                               )}
+
+                              {activePluginSubTab === 'valuation' && (() => {
+                                // Find bucket
+                                let targetBucket: any = null;
+                                if (quotaData && Array.isArray(quotaData.groups)) {
+                                  const geminiGroup = quotaData.groups.find((g: any) => (g.displayName || '').toLowerCase().includes('gemini')) || quotaData.groups[0];
+                                  if (geminiGroup && Array.isArray(geminiGroup.buckets)) {
+                                    if (activeValPeriod === '5h') {
+                                      targetBucket = geminiGroup.buckets.find((b: any) => b.window === '5h') || geminiGroup.buckets[1] || geminiGroup.buckets[0];
+                                    } else if (activeValPeriod === 'weekly') {
+                                      targetBucket = geminiGroup.buckets.find((b: any) => b.window === 'weekly') || geminiGroup.buckets[0];
+                                    }
+                                  }
+                                }
+
+                                const bucketResetTime = targetBucket?.resetTime;
+                                const bucketRemFraction = typeof targetBucket?.remainingFraction === 'number' ? targetBucket.remainingFraction : null;
+                                const bucketResetInSec = targetBucket?.resetInSeconds || 0;
+
+                                const nowMs = Date.now();
+                                let endMs = nowMs;
+                                if (bucketResetTime) {
+                                  const parsed = new Date(bucketResetTime).getTime();
+                                  if (!isNaN(parsed)) endMs = parsed;
+                                }
+                                let startMs = 0;
+                                if (activeValPeriod === '5h') {
+                                  startMs = endMs - 5 * 3600 * 1000;
+                                } else if (activeValPeriod === 'weekly') {
+                                  startMs = endMs - 7 * 24 * 3600 * 1000;
+                                } else {
+                                  startMs = 0;
+                                  endMs = nowMs + 86400000;
+                                }
+
+                                const hist = (usageData && Array.isArray(usageData.history) && usageData.history.length > 0)
+                                  ? usageData.history
+                                  : ((usageData && Array.isArray(usageData.recent)) ? usageData.recent : []);
+
+                                const modelStats: Record<string, { requests: number; inputTokens: number; outputTokens: number; reasoningTokens: number; cacheReadTokens: number }> = {};
+                                for (const rec of hist) {
+                                  const t = new Date(rec.timestamp).getTime();
+                                  if (isNaN(t)) continue;
+                                  if (t >= startMs && t <= endMs) {
+                                    const m = rec.model || 'unknown';
+                                    if (!modelStats[m]) {
+                                      modelStats[m] = { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 };
+                                    }
+                                    modelStats[m].requests++;
+                                    modelStats[m].inputTokens += (rec.inputTokens || 0);
+                                    modelStats[m].outputTokens += (rec.outputTokens || 0);
+                                    modelStats[m].reasoningTokens += (rec.reasoningTokens || 0);
+                                    modelStats[m].cacheReadTokens += (rec.cacheReadTokens || 0);
+                                  }
+                                }
+
+                                let totalIn = 0;
+                                let totalOut = 0;
+                                let totalCache = 0;
+                                let totalCost = 0;
+
+                                const modelList = Object.keys(modelStats).length > 0 ? Object.keys(modelStats) : ['gemini-3.7-flash-high'];
+                                const rows = modelList.map(mId => {
+                                  const st = modelStats[mId] || { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 };
+                                  const p = mobilePricing[mId] || { input: 0.10, output: 0.40, cache: 0.025 };
+                                  const outWithReasoning = (st.outputTokens || 0) + (st.reasoningTokens || 0);
+                                  const cost = (st.inputTokens * p.input + outWithReasoning * p.output + st.cacheReadTokens * p.cache) / 1000000;
+                                  totalIn += st.inputTokens;
+                                  totalOut += outWithReasoning;
+                                  totalCache += st.cacheReadTokens;
+                                  totalCost += cost;
+                                  return { mId, st, p, outWithReasoning, cost };
+                                });
+
+                                const remPct = typeof bucketRemFraction === 'number' ? Math.round(bucketRemFraction * 1000) / 10 : null;
+                                const usedFraction = typeof bucketRemFraction === 'number' ? Math.max(0, 1 - bucketRemFraction) : null;
+                                const usedPct = usedFraction !== null ? Math.round(usedFraction * 1000) / 10 : null;
+
+                                let estTotalUsd: number | null = null;
+                                let estRemUsd: number | null = null;
+                                if (usedFraction !== null && usedFraction > 0.0001 && totalCost > 0) {
+                                  estTotalUsd = totalCost / usedFraction;
+                                  estRemUsd = estTotalUsd * (bucketRemFraction ?? 0);
+                                }
+
+                                const formatUsd = (num: number | null) => {
+                                  if (num === null) return '—';
+                                  if (num < 0.01 && num > 0) return `$${num.toFixed(4)}`;
+                                  return `$${num.toFixed(2)}`;
+                                };
+
+                                return (
+                                  <div style="display: flex; flex-direction: column; gap: 10px;">
+                                    {/* Period Pills */}
+                                    <div class="flex items-center justify-between">
+                                      <div class="flex items-center gap-1" style="background: var(--bg-tertiary); padding: 2px; border-radius: var(--radius-sm);">
+                                        <button
+                                          class={`chip-btn ${activeValPeriod === '5h' ? 'active' : ''}`}
+                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === '5h' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === '5h' ? '#fff' : 'var(--text-secondary)' }}
+                                          onClick={() => setActiveValPeriod('5h')}
+                                        >
+                                          5小时
+                                        </button>
+                                        <button
+                                          class={`chip-btn ${activeValPeriod === 'weekly' ? 'active' : ''}`}
+                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === 'weekly' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === 'weekly' ? '#fff' : 'var(--text-secondary)' }}
+                                          onClick={() => setActiveValPeriod('weekly')}
+                                        >
+                                          周额度
+                                        </button>
+                                        <button
+                                          class={`chip-btn ${activeValPeriod === 'all' ? 'active' : ''}`}
+                                          style={{ fontSize: '11px', padding: '2px 8px', background: activeValPeriod === 'all' ? 'var(--accent-primary)' : 'transparent', color: activeValPeriod === 'all' ? '#fff' : 'var(--text-secondary)' }}
+                                          onClick={() => setActiveValPeriod('all')}
+                                        >
+                                          全部
+                                        </button>
+                                      </div>
+                                      <button class="chip-btn" onClick={() => { fetchAntigravityQuota(true); fetchAntigravityUsage(); }} style="font-size: 11px; padding: 2px 6px;">
+                                        🔄 刷新
+                                      </button>
+                                    </div>
+
+                                    {/* Window info */}
+                                    <div style="font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);">
+                                      <span>倒推窗口: {new Date(startMs).toLocaleTimeString()} ~ {new Date(endMs).toLocaleTimeString()}</span>
+                                      {bucketResetTime && (
+                                        <span style="float: right;">倒计时: {formatSeconds(bucketResetInSec)}</span>
+                                      )}
+                                    </div>
+
+                                    {/* KPI cards */}
+                                    <div class="plugin-metric-grid">
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">周期已消耗</span>
+                                        <span class="plugin-metric-value">{formatUsd(totalCost)}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">额度消耗比</span>
+                                        <span class="plugin-metric-value">{usedPct !== null ? `${usedPct}%` : '—'}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">🔮 估算总额度</span>
+                                        <span class="plugin-metric-value" style="color: var(--accent-primary);">{estTotalUsd !== null ? formatUsd(estTotalUsd) : (usedPct === 0 ? '100% 完整' : '待推算')}</span>
+                                      </div>
+                                      <div class="plugin-metric-box">
+                                        <span class="plugin-metric-label">🛡️ 估算剩余可用</span>
+                                        <span class="plugin-metric-value" style="color: #10b981;">{estRemUsd !== null ? formatUsd(estRemUsd) : (usedPct === 0 ? '完全就绪' : '待推算')}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Model Pricing & Cost list */}
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">各模型定价与周期折算 ($/1M)</div>
+                                      {rows.map(({ mId, st, p, outWithReasoning, cost }) => (
+                                        <div key={mId} style="background: var(--bg-tertiary); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 11px;">
+                                          <div class="flex items-center justify-between" style="font-weight: 600; margin-bottom: 4px;">
+                                            <span>{mId}</span>
+                                            <span style="color: var(--accent-primary);">{formatUsd(cost)}</span>
+                                          </div>
+                                          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; color: var(--text-muted); font-size: 10px;">
+                                            <div>
+                                              入: {(st.inputTokens || 0).toLocaleString()}
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
+                                                value={p.input}
+                                                onInput={(e: any) => {
+                                                  const val = parseFloat(e.target.value) || 0;
+                                                  const next = { ...mobilePricing, [mId]: { ...p, input: val } };
+                                                  setMobilePricing(next);
+                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
+                                                }}
+                                              />
+                                            </div>
+                                            <div>
+                                              出+思: {outWithReasoning.toLocaleString()}
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
+                                                value={p.output}
+                                                onInput={(e: any) => {
+                                                  const val = parseFloat(e.target.value) || 0;
+                                                  const next = { ...mobilePricing, [mId]: { ...p, output: val } };
+                                                  setMobilePricing(next);
+                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
+                                                }}
+                                              />
+                                            </div>
+                                            <div>
+                                              缓存: {(st.cacheReadTokens || 0).toLocaleString()}
+                                              <input
+                                                type="number"
+                                                step="0.001"
+                                                style="width: 100%; height: 20px; font-size: 10px; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 2px; background: var(--bg-primary); color: var(--text-primary); margin-top: 2px;"
+                                                value={p.cache}
+                                                onInput={(e: any) => {
+                                                  const val = parseFloat(e.target.value) || 0;
+                                                  const next = { ...mobilePricing, [mId]: { ...p, cache: val } };
+                                                  setMobilePricing(next);
+                                                  try { localStorage.setItem('antigravity_pricing_v1', JSON.stringify(next)); } catch {}
+                                                }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {activePluginSubTab === 'config' && (
                                 <div style="display: flex; flex-direction: column; gap: 10px;">

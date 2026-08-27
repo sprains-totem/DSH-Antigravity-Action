@@ -4,9 +4,10 @@
 
 	const en = {
 		title: "Antigravity (Google Cloud Code)",
-		description: "Google Cloud Code Gemini adapter with OAuth 2.0 refresh_token, live quota & usage statistics.",
+		description: "Google Cloud Code Gemini adapter with OAuth 2.0 refresh_token, live quota, usage statistics & USD valuation estimation.",
 		tabQuota: "Real-time Quota",
 		tabUsage: "Usage Statistics",
+		tabValuation: "Quota Estimation",
 		tabConfig: "Settings",
 		tokenLabel: "Refresh Token",
 		tokenHint: "Google Cloud Code OAuth 2.0 refresh token. Stored securely in credentials service.",
@@ -54,14 +55,58 @@
 		modelCol: "Model",
 		tokensCol: "Tokens",
 		durationCol: "Latency",
-		savingsCol: "Savings"
+		savingsCol: "Savings",
+
+		// Valuation & Estimation
+		period5h: "5-Hour Window",
+		periodWeekly: "Weekly Window",
+		periodAll: "All Time",
+		groupAll: "All Groups",
+		groupGemini: "Gemini Group",
+		group3p: "Claude / GPT Group",
+		windowNotice5h: "5-Hour backward window based on quota reset time",
+		windowNoticeWeekly: "7-Day (1-Week) backward window based on quota reset time",
+		windowNoticeAll: "Cumulative usage across all recorded history",
+		windowRangeLabel: "Calculation Window",
+		usedCostTitle: "Consumed USD in Window",
+		quotaRemainingPct: "Quota Remaining",
+		quotaConsumedPct: "Quota Consumed",
+		estTotalQuotaTitle: "Est. Total Quota Value",
+		estRemainingQuotaTitle: "Est. Remaining Value",
+		estFormulaHint: "Extrapolated proportionally from USD tokens consumed and Google quota deduction ratio",
+		estRemainingHint: "Equivalent USD value of remaining tokens available in this cycle",
+		estZeroNotice: "Quota is 100% full (0% consumed). Total quota value will be calculated dynamically once requests are made.",
+		estExtNotice: "External quota deduction detected, but local token log is empty in this window. Send a prompt to calibrate.",
+		noUsageInWindow: "No requests recorded within this window.",
+		pricingTableTitle: "Custom Pricing & USD Token Valuation",
+		pricingNote: "Prices are in USD per 1 Million Tokens ($/1M). Thinking/reasoning tokens are billed at the output rate.",
+		inputTokensCol: "Input Tokens",
+		inputPriceCol: "Input ($/1M)",
+		outputTokensCol: "Output (inc. Reasoning)",
+		outputPriceCol: "Output ($/1M)",
+		cacheTokensCol: "Cache Read",
+		cachePriceCol: "Cache ($/1M)",
+		periodCostCol: "Period Cost (USD)",
+		resetPricingBtn: "Reset to Official Defaults",
+		savePricingBtn: "Save Pricing",
+		pricingSavedToast: "Pricing saved",
+		totalPeriodCost: "Total Cost",
+		showAllModelsToggle: "Show all supported models",
+		hideAllModelsToggle: "Show active models only",
+		perModelEstTitle: "Per-Model Quota Breakdown",
+		perModelHeader: "Model",
+		perModelRemHeader: "Remaining %",
+		perModelCostHeader: "Used ($)",
+		perModelTotalHeader: "Est. Total ($)",
+		perModelRemValHeader: "Est. Remaining ($)"
 	};
 
 	const zh = {
 		title: "Antigravity (Google Cloud Code)",
-		description: "Google Cloud Code Gemini 适配器，支持 OAuth 2.0 认证、实时额度监控与 Token 用量统计。",
+		description: "Google Cloud Code Gemini 适配器，支持 OAuth 2.0 认证、实时额度监控、Token 用量统计与 5小时/周额度美元价值预估。",
 		tabQuota: "实时额度",
 		tabUsage: "用量统计",
+		tabValuation: "额度估算",
 		tabConfig: "基本配置",
 		tokenLabel: "Refresh Token",
 		tokenHint: "Google Cloud Code OAuth 2.0 刷新令牌，安全保存在本地凭据库中。",
@@ -109,14 +154,101 @@
 		modelCol: "模型",
 		tokensCol: "Token 消耗",
 		durationCol: "耗时",
-		savingsCol: "缓存节省"
+		savingsCol: "缓存节省",
+
+		// Valuation & Estimation
+		period5h: "5小时周期",
+		periodWeekly: "周额度周期",
+		periodAll: "全部历史",
+		groupAll: "全部模型组",
+		groupGemini: "Gemini 额度组",
+		group3p: "Claude / GPT 额度组",
+		windowNotice5h: "按照 5小时 额度重置时间往前倒推 5 小时统计各模型用量",
+		windowNoticeWeekly: "按照 每周 额度重置时间往前倒推 7 天 (1周) 统计各模型用量",
+		windowNoticeAll: "统计本地记录的所有历史调用用量",
+		windowRangeLabel: "统计时间窗口",
+		usedCostTitle: "本周期已消耗价值",
+		quotaRemainingPct: "额度剩余比例",
+		quotaConsumedPct: "已消耗额度比例",
+		estTotalQuotaTitle: "周期总额度预估价值",
+		estRemainingQuotaTitle: "周期剩余可用价值",
+		estFormulaHint: "根据本周期实际消耗美元与 Google 额度扣减比例动态反推",
+		estRemainingHint: "当前剩余百分比对应的等价 Token 美元可用总额度",
+		estZeroNotice: "本周期额度 100% 完整（未发生消耗）。发起请求后将依据消耗比例自动推算总价值额度。",
+		estExtNotice: "检测到额度存在扣减，但本地窗口内尚无调用记录。发起请求后将自动校准估值。",
+		noUsageInWindow: "当前时间窗口内暂无调用记录。",
+		pricingTableTitle: "各模型自定义定价与用量折算",
+		pricingNote: "定价单位为美元/百万 Token ($/1M Tokens)。输出定价含思维链 (Reasoning/Thinking) Token。",
+		inputTokensCol: "实际输入 Token",
+		inputPriceCol: "输入单价 ($/1M)",
+		outputTokensCol: "输出 Token (含思维链)",
+		outputPriceCol: "输出单价 ($/1M)",
+		cacheTokensCol: "缓存读取 Token",
+		cachePriceCol: "缓存单价 ($/1M)",
+		periodCostCol: "本周期折算 ($)",
+		resetPricingBtn: "恢复官方默认定价",
+		savePricingBtn: "保存自定义定价",
+		pricingSavedToast: "定价配置已保存",
+		totalPeriodCost: "总计折算消耗",
+		showAllModelsToggle: "展开所有支持的模型",
+		hideAllModelsToggle: "仅显示有调用的模型",
+		perModelEstTitle: "各模型独立额度与价值测算",
+		perModelHeader: "模型名称",
+		perModelRemHeader: "剩余比例",
+		perModelCostHeader: "已消耗 ($)",
+		perModelTotalHeader: "估算总额度 ($)",
+		perModelRemValHeader: "估算剩余 ($)"
 	};
+
+	const DEFAULT_MODEL_PRICING = {
+		"gemini-3.7-flash-high": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.7-flash-medium": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.7-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.7-flash-tiered": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.6-flash-high": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.6-flash-medium": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.6-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.6-flash-tiered": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.5-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.5-flash-extra-low": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3-flash": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3-flash-agent": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.1-flash-lite": { input: 0.075, output: 0.30, cache: 0.01875 },
+		"gemini-3.1-flash-image": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-2.5-flash": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-2.5-flash-lite": { input: 0.075, output: 0.30, cache: 0.01875 },
+		"gemini-2.5-flash-thinking": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-2.5-pro": { input: 1.25, output: 5.00, cache: 0.3125 },
+		"gemini-3.1-pro-high": { input: 1.25, output: 5.00, cache: 0.3125 },
+		"gemini-3.1-pro-low": { input: 1.25, output: 5.00, cache: 0.3125 },
+		"gemini-pro-agent": { input: 1.25, output: 5.00, cache: 0.3125 },
+		"claude-sonnet-4-6": { input: 3.00, output: 15.00, cache: 0.30 },
+		"claude-opus-4-6-thinking": { input: 15.00, output: 75.00, cache: 1.50 },
+		"gpt-oss-120b-medium": { input: 0.50, output: 2.00, cache: 0.10 }
+	};
+	const DEFAULT_FALLBACK_PRICING = { input: 0.10, output: 0.40, cache: 0.025 };
+
+	function getModelGroup(modelId) {
+		const lower = (modelId || "").toLowerCase();
+		if (lower.startsWith("claude") || lower.startsWith("gpt") || lower.includes("3p")) return "3p";
+		return "gemini";
+	}
 
 	function formatTokens(num) {
 		if (num === void 0 || num === null || isNaN(num)) return "0";
 		if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
 		if (num >= 1000) return (num / 1000).toFixed(1) + "k";
 		return num.toLocaleString();
+	}
+
+	function formatCurrency(num) {
+		if (num === void 0 || num === null || isNaN(num)) return "$0.00";
+		if (num === 0) return "$0.00";
+		if (num < 0.0001 && num > 0) return "< $0.0001";
+		if (num < 0.01 && num > 0) return "$" + num.toFixed(4);
+		if (num < 1) return "$" + num.toFixed(4);
+		if (num < 100) return "$" + num.toFixed(2);
+		return "$" + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 	}
 
 	function formatDuration(ms) {
@@ -166,7 +298,7 @@
 
 		function AntigravityCard(props) {
 			const [open, setOpen] = react.useState(true);
-			const [activeTab, setActiveTab] = react.useState("quota"); // 'quota' | 'usage' | 'config'
+			const [activeTab, setActiveTab] = react.useState("quota"); // 'quota' | 'usage' | 'valuation' | 'config'
 			const { t } = props;
 			const state = props.useAntigravityCard((snapshot) => snapshot);
 			const disabled = !state.writable;
@@ -181,6 +313,64 @@
 			const [loadingUsage, setLoadingUsage] = react.useState(false);
 			const [usageError, setUsageError] = react.useState(null);
 			const [clearingUsage, setClearingUsage] = react.useState(false);
+
+			// Valuation specific states
+			const [activeValuationPeriod, setActiveValuationPeriod] = react.useState("5h"); // '5h' | 'weekly' | 'all'
+			const [selectedGroupFilter, setSelectedGroupFilter] = react.useState("all"); // 'all' | 'gemini' | '3p'
+			const [showAllCatalogModels, setShowAllCatalogModels] = react.useState(false);
+			const [pricingSavedToast, setPricingSavedToast] = react.useState(false);
+
+			const [pricing, setPricing] = react.useState(() => {
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						const saved = window.localStorage.getItem("antigravity_pricing_v1");
+						if (saved) {
+							const parsed = JSON.parse(saved);
+							return { ...DEFAULT_MODEL_PRICING, ...parsed };
+						}
+					}
+				} catch (e) {}
+				return { ...DEFAULT_MODEL_PRICING };
+			});
+
+			const handlePriceChange = (modelId, key, val) => {
+				const num = parseFloat(val);
+				const currentModelPricing = pricing[modelId] || DEFAULT_MODEL_PRICING[modelId] || DEFAULT_FALLBACK_PRICING;
+				const next = {
+					...pricing,
+					[modelId]: {
+						...currentModelPricing,
+						[key]: isNaN(num) ? 0 : num
+					}
+				};
+				setPricing(next);
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						window.localStorage.setItem("antigravity_pricing_v1", JSON.stringify(next));
+					}
+				} catch (e) {}
+			};
+
+			const handleResetPricing = () => {
+				setPricing({ ...DEFAULT_MODEL_PRICING });
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						window.localStorage.removeItem("antigravity_pricing_v1");
+					}
+				} catch (e) {}
+				setPricingSavedToast(true);
+				setTimeout(() => setPricingSavedToast(false), 2000);
+			};
+
+			const handleSavePricing = () => {
+				try {
+					if (typeof window !== "undefined" && window.localStorage) {
+						window.localStorage.setItem("antigravity_pricing_v1", JSON.stringify(pricing));
+					}
+				} catch (e) {}
+				setPricingSavedToast(true);
+				setTimeout(() => setPricingSavedToast(false), 2000);
+			};
 
 			const fetchQuota = react.useCallback(async (force = false) => {
 				if (!state.tokenConfigured) return;
@@ -271,13 +461,170 @@
 
 			// Auto fetch when opening tab
 			react.useEffect(() => {
-				if (open && activeTab === "quota" && !quotaData && state.tokenConfigured) {
+				if (open && (activeTab === "quota" || activeTab === "valuation") && !quotaData && state.tokenConfigured) {
 					fetchQuota(false);
 				}
-				if (open && activeTab === "usage" && !usageData) {
+				if (open && (activeTab === "usage" || activeTab === "valuation") && !usageData) {
 					fetchUsage();
 				}
 			}, [open, activeTab, state.tokenConfigured, quotaData, usageData, fetchQuota, fetchUsage]);
+
+			// -------------------------------------------------------------
+			// Compute Window & Quota Valuation Calculation
+			// -------------------------------------------------------------
+			let targetBucket = null;
+			let bucketResetTime = null;
+			let bucketRemainingFraction = null;
+			let bucketResetInSeconds = 0;
+
+			if (quotaData && Array.isArray(quotaData.groups)) {
+				const geminiGroup = quotaData.groups.find(g => (g.displayName || "").toLowerCase().includes("gemini"));
+				const thirdPartyGroup = quotaData.groups.find(g => (g.displayName || "").toLowerCase().includes("claude") || (g.displayName || "").toLowerCase().includes("3p"));
+
+				let activeGroupObj = null;
+				if (selectedGroupFilter === "gemini") activeGroupObj = geminiGroup;
+				else if (selectedGroupFilter === "3p") activeGroupObj = thirdPartyGroup;
+				else activeGroupObj = geminiGroup || quotaData.groups[0];
+
+				if (activeGroupObj && Array.isArray(activeGroupObj.buckets)) {
+					if (activeValuationPeriod === "5h") {
+						targetBucket = activeGroupObj.buckets.find(b => b.window === "5h") || activeGroupObj.buckets[1] || activeGroupObj.buckets[0];
+					} else if (activeValuationPeriod === "weekly") {
+						targetBucket = activeGroupObj.buckets.find(b => b.window === "weekly") || activeGroupObj.buckets[0];
+					}
+				}
+				if (targetBucket) {
+					bucketResetTime = targetBucket.resetTime;
+					bucketRemainingFraction = typeof targetBucket.remainingFraction === "number" ? targetBucket.remainingFraction : null;
+					bucketResetInSeconds = targetBucket.resetInSeconds || 0;
+				}
+			}
+
+			// Time range computation
+			const nowMs = Date.now();
+			let windowEndMs = nowMs;
+			if (bucketResetTime) {
+				const parsed = new Date(bucketResetTime).getTime();
+				if (!isNaN(parsed)) windowEndMs = parsed;
+			}
+			let windowStartMs = 0;
+			if (activeValuationPeriod === "5h") {
+				windowStartMs = windowEndMs - (5 * 3600 * 1000);
+			} else if (activeValuationPeriod === "weekly") {
+				windowStartMs = windowEndMs - (7 * 24 * 3600 * 1000);
+			} else {
+				windowStartMs = 0;
+				windowEndMs = nowMs + 86400000;
+			}
+
+			// Aggregate usage items in [windowStartMs, windowEndMs]
+			const historyList = (usageData && Array.isArray(usageData.history) && usageData.history.length > 0)
+				? usageData.history
+				: ((usageData && Array.isArray(usageData.recent)) ? usageData.recent : []);
+
+			const windowModelStats = {};
+			if (activeValuationPeriod === "all" && usageData && usageData.byModel) {
+				for (const [mName, mStat] of Object.entries(usageData.byModel)) {
+					if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
+					windowModelStats[mName] = {
+						requests: mStat.requests || 0,
+						inputTokens: mStat.inputTokens || 0,
+						outputTokens: mStat.outputTokens || 0,
+						reasoningTokens: mStat.reasoningTokens || 0,
+						cacheReadTokens: mStat.cacheReadTokens || 0,
+						totalTokens: mStat.totalTokens || 0,
+					};
+				}
+			} else {
+				for (const rec of historyList) {
+					const recTime = new Date(rec.timestamp).getTime();
+					if (isNaN(recTime)) continue;
+					if (recTime >= windowStartMs && recTime <= windowEndMs) {
+						const mName = rec.model || "unknown";
+						if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
+						if (!windowModelStats[mName]) {
+							windowModelStats[mName] = {
+								requests: 0,
+								inputTokens: 0,
+								outputTokens: 0,
+								reasoningTokens: 0,
+								cacheReadTokens: 0,
+								totalTokens: 0,
+							};
+						}
+						const st = windowModelStats[mName];
+						st.requests++;
+						st.inputTokens += (rec.inputTokens || 0);
+						st.outputTokens += (rec.outputTokens || 0);
+						st.reasoningTokens += (rec.reasoningTokens || 0);
+						st.cacheReadTokens += (rec.cacheReadTokens || 0);
+						st.totalTokens += ((rec.inputTokens || 0) + (rec.outputTokens || 0) + (rec.reasoningTokens || 0));
+					}
+				}
+			}
+
+			// Compile model cost list
+			const displayedModelKeys = new Set(Object.keys(windowModelStats));
+			if (showAllCatalogModels) {
+				for (const k of Object.keys(DEFAULT_MODEL_PRICING)) {
+					if (selectedGroupFilter === "all" || getModelGroup(k) === selectedGroupFilter) {
+						displayedModelKeys.add(k);
+					}
+				}
+			}
+
+			let totalPeriodInputTokens = 0;
+			let totalPeriodOutputTokens = 0;
+			let totalPeriodReasoningTokens = 0;
+			let totalPeriodCacheReadTokens = 0;
+			let totalPeriodUsdCost = 0;
+
+			const modelCostList = [];
+			for (const mId of Array.from(displayedModelKeys).sort()) {
+				const stats = windowModelStats[mId] || { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, totalTokens: 0 };
+				const p = pricing[mId] || DEFAULT_MODEL_PRICING[mId] || DEFAULT_FALLBACK_PRICING;
+				const pIn = typeof p.input === "number" ? p.input : DEFAULT_FALLBACK_PRICING.input;
+				const pOut = typeof p.output === "number" ? p.output : DEFAULT_FALLBACK_PRICING.output;
+				const pCache = typeof p.cache === "number" ? p.cache : DEFAULT_FALLBACK_PRICING.cache;
+
+				const outputWithReasoning = (stats.outputTokens || 0) + (stats.reasoningTokens || 0);
+				const inCost = ((stats.inputTokens || 0) * pIn) / 1000000;
+				const outCost = (outputWithReasoning * pOut) / 1000000;
+				const cacheCost = ((stats.cacheReadTokens || 0) * pCache) / 1000000;
+				const usdCost = inCost + outCost + cacheCost;
+
+				totalPeriodInputTokens += stats.inputTokens;
+				totalPeriodOutputTokens += stats.outputTokens;
+				totalPeriodReasoningTokens += stats.reasoningTokens;
+				totalPeriodCacheReadTokens += stats.cacheReadTokens;
+				totalPeriodUsdCost += usdCost;
+
+				modelCostList.push({
+					modelId: mId,
+					stats,
+					pricing: { input: pIn, output: pOut, cache: pCache },
+					outputWithReasoning,
+					inCost,
+					outCost,
+					cacheCost,
+					usdCost
+				});
+			}
+
+			// Quota percentage and estimation calculation
+			const remainingPct = typeof bucketRemainingFraction === "number" ? Math.round(bucketRemainingFraction * 1000) / 10 : null;
+			const usedFraction = typeof bucketRemainingFraction === "number" ? Math.max(0, 1 - bucketRemainingFraction) : null;
+			const usedPct = usedFraction !== null ? Math.round(usedFraction * 1000) / 10 : null;
+
+			let estTotalQuotaUsd = null;
+			let estRemainingQuotaUsd = null;
+
+			if (usedFraction !== null && usedFraction > 0.0001) {
+				if (totalPeriodUsdCost > 0) {
+					estTotalQuotaUsd = totalPeriodUsdCost / usedFraction;
+					estRemainingQuotaUsd = estTotalQuotaUsd * (bucketRemainingFraction ?? 0);
+				}
+			}
 
 			return (0, react_jsx_runtime.jsxs)("li", {
 				style: {
@@ -350,7 +697,8 @@
 									gap: 4,
 									padding: "10px 20px 0 20px",
 									borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
-									background: "var(--dsw-alias-bg-layer-1, #f9fafb)"
+									background: "var(--dsw-alias-bg-layer-1, #f9fafb)",
+									overflowX: "auto"
 								},
 								children: [
 									(0, react_jsx_runtime.jsx)("button", {
@@ -363,7 +711,8 @@
 											background: "none",
 											border: "none",
 											borderBottom: activeTab === "quota" ? "2px solid var(--dsw-alias-brand-primary, #0284c7)" : "2px solid transparent",
-											cursor: "pointer"
+											cursor: "pointer",
+											whiteSpace: "nowrap"
 										},
 										onClick: () => setActiveTab("quota"),
 										children: `⚡ ${t("tabQuota")}`
@@ -378,10 +727,27 @@
 											background: "none",
 											border: "none",
 											borderBottom: activeTab === "usage" ? "2px solid var(--dsw-alias-brand-primary, #0284c7)" : "2px solid transparent",
-											cursor: "pointer"
+											cursor: "pointer",
+											whiteSpace: "nowrap"
 										},
 										onClick: () => setActiveTab("usage"),
 										children: `📊 ${t("tabUsage")}`
+									}),
+									(0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										style: {
+											padding: "8px 16px",
+											fontSize: 13,
+											fontWeight: activeTab === "valuation" ? 600 : 400,
+											color: activeTab === "valuation" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
+											background: "none",
+											border: "none",
+											borderBottom: activeTab === "valuation" ? "2px solid var(--dsw-alias-brand-primary, #0284c7)" : "2px solid transparent",
+											cursor: "pointer",
+											whiteSpace: "nowrap"
+										},
+										onClick: () => setActiveTab("valuation"),
+										children: `💰 ${t("tabValuation")}`
 									}),
 									(0, react_jsx_runtime.jsx)("button", {
 										type: "button",
@@ -393,7 +759,8 @@
 											background: "none",
 											border: "none",
 											borderBottom: activeTab === "config" ? "2px solid var(--dsw-alias-brand-primary, #0284c7)" : "2px solid transparent",
-											cursor: "pointer"
+											cursor: "pointer",
+											whiteSpace: "nowrap"
 										},
 										onClick: () => setActiveTab("config"),
 										children: `⚙️ ${t("tabConfig")}`
@@ -687,7 +1054,7 @@
 
 									// KPI Summary Grid
 									(0, react_jsx_runtime.jsxs)("div", {
-										style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 },
+										style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16 },
 										children: [
 											(0, react_jsx_runtime.jsxs)("div", {
 												style: { padding: "10px", borderRadius: 8, background: "var(--dsw-alias-bg-layer-3, #fafafa)", border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)", textAlign: "center" },
@@ -736,35 +1103,40 @@
 										style: { marginBottom: 16 },
 										children: [
 											(0, react_jsx_runtime.jsx)("div", { style: { fontSize: 12, fontWeight: 600, color: "var(--dsw-alias-label-secondary, #6b7280)", marginBottom: 8 }, children: t("modelBreakdown") }),
-											(0, react_jsx_runtime.jsxs)("table", {
-												style: { width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" },
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { overflowX: "auto" },
 												children: [
-													(0, react_jsx_runtime.jsx)("thead", {
-														children: (0, react_jsx_runtime.jsxs)("tr", {
-															style: { borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e7eb)", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
-															children: [
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px" }, children: t("modelCol") }),
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalRequests") }),
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalInput") }),
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalOutput") }),
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalCacheRead") }),
-																(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalReasoning") })
-															]
-														})
-													}),
-													(0, react_jsx_runtime.jsx)("tbody", {
-														children: Object.entries(usageData.byModel).map(([mName, mStats], idx) => (0, react_jsx_runtime.jsxs)("tr", {
-															key: idx,
-															style: { borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)" },
-															children: [
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", fontWeight: 500, color: "var(--dsw-alias-label-primary, #111827)" }, children: mName }),
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: mStats.requests }),
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.inputTokens) }),
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.outputTokens) }),
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "#059669", fontWeight: 500 }, children: formatTokens(mStats.cacheReadTokens) }),
-																(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.reasoningTokens) })
-															]
-														}))
+													(0, react_jsx_runtime.jsxs)("table", {
+														style: { width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "left" },
+														children: [
+															(0, react_jsx_runtime.jsx)("thead", {
+																children: (0, react_jsx_runtime.jsxs)("tr", {
+																	style: { borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e7eb)", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px" }, children: t("modelCol") }),
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalRequests") }),
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalInput") }),
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalOutput") }),
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalCacheRead") }),
+																		(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("totalReasoning") })
+																	]
+																})
+															}),
+															(0, react_jsx_runtime.jsx)("tbody", {
+																children: Object.entries(usageData.byModel).map(([mName, mStats], idx) => (0, react_jsx_runtime.jsxs)("tr", {
+																	key: idx,
+																	style: { borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)" },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", fontWeight: 500, color: "var(--dsw-alias-label-primary, #111827)" }, children: mName }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: mStats.requests }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.inputTokens) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.outputTokens) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "#059669", fontWeight: 500 }, children: formatTokens(mStats.cacheReadTokens) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right" }, children: formatTokens(mStats.reasoningTokens) })
+																	]
+																}))
+															})
+														]
 													})
 												]
 											})
@@ -803,7 +1175,8 @@
 															children: [
 																(0, react_jsx_runtime.jsxs)("span", { style: { color: "var(--dsw-alias-label-secondary, #4b5563)" }, children: [
 																	`↑${formatTokens(rec.inputTokens)} `,
-																	`↓${formatTokens(rec.outputTokens)}`
+																	`↓${formatTokens(rec.outputTokens)}`,
+																	rec.reasoningTokens > 0 ? ` 💭${formatTokens(rec.reasoningTokens)}` : ""
 																] }),
 																rec.cacheReadTokens > 0 ? (0, react_jsx_runtime.jsx)("span", {
 																	style: { padding: "1px 5px", borderRadius: 4, background: "#dcfce7", color: "#16a34a", fontWeight: 500 },
@@ -822,7 +1195,626 @@
 								]
 							}) : null,
 
-							// Tab 3: Configuration View
+							// Tab 3: Quota Estimation & Valuation View
+							activeTab === "valuation" ? (0, react_jsx_runtime.jsxs)("div", {
+								style: { padding: "16px 20px 20px 20px" },
+								children: [
+									// Valuation Toolbar (Period Toggle + Group Selector + Actions)
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 14 },
+										children: [
+											// Period Selector Pills
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", background: "var(--dsw-alias-bg-module-platform, #f3f4f6)", padding: "3px", borderRadius: 8, gap: 2 },
+												children: [
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															padding: "4px 12px",
+															borderRadius: 6,
+															border: "none",
+															fontSize: 12,
+															fontWeight: activeValuationPeriod === "5h" ? 600 : 400,
+															background: activeValuationPeriod === "5h" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "none",
+															color: activeValuationPeriod === "5h" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
+															boxShadow: activeValuationPeriod === "5h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+															cursor: "pointer"
+														},
+														onClick: () => setActiveValuationPeriod("5h"),
+														children: `⏱️ ${t("period5h")}`
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															padding: "4px 12px",
+															borderRadius: 6,
+															border: "none",
+															fontSize: 12,
+															fontWeight: activeValuationPeriod === "weekly" ? 600 : 400,
+															background: activeValuationPeriod === "weekly" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "none",
+															color: activeValuationPeriod === "weekly" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
+															boxShadow: activeValuationPeriod === "weekly" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+															cursor: "pointer"
+														},
+														onClick: () => setActiveValuationPeriod("weekly"),
+														children: `📅 ${t("periodWeekly")}`
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															padding: "4px 12px",
+															borderRadius: 6,
+															border: "none",
+															fontSize: 12,
+															fontWeight: activeValuationPeriod === "all" ? 600 : 400,
+															background: activeValuationPeriod === "all" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "none",
+															color: activeValuationPeriod === "all" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
+															boxShadow: activeValuationPeriod === "all" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+															cursor: "pointer"
+														},
+														onClick: () => setActiveValuationPeriod("all"),
+														children: `🌐 ${t("periodAll")}`
+													})
+												]
+											}),
+
+											// Group Filter & Actions
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", alignItems: "center", gap: 8 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("select", {
+														style: {
+															height: 28,
+															fontSize: 12,
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															color: "var(--dsw-alias-label-primary, #111827)",
+															padding: "0 6px",
+															cursor: "pointer"
+														},
+														value: selectedGroupFilter,
+														onChange: (e) => setSelectedGroupFilter(e.target.value),
+														children: [
+															(0, react_jsx_runtime.jsx)("option", { value: "all", children: t("groupAll") }),
+															(0, react_jsx_runtime.jsx)("option", { value: "gemini", children: t("groupGemini") }),
+															(0, react_jsx_runtime.jsx)("option", { value: "3p", children: t("group3p") })
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															padding: "4px 10px",
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															fontSize: 12,
+															color: "var(--dsw-alias-label-primary, #111827)",
+															cursor: (loadingQuota || loadingUsage) ? "default" : "pointer"
+														},
+														disabled: loadingQuota || loadingUsage,
+														onClick: () => { fetchQuota(true); fetchUsage(); },
+														children: (loadingQuota || loadingUsage) ? t("refreshing") : `🔄 ${t("refreshQuota")}`
+													})
+												]
+											})
+										]
+									}),
+
+									// Period Window & Notice Banner
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											padding: "10px 14px",
+											borderRadius: 8,
+											background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+											border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
+											marginBottom: 14,
+											display: "flex",
+											flexDirection: "column",
+											gap: 6
+										},
+										children: [
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, flexWrap: "wrap", gap: 6 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", alignItems: "center", gap: 6 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" }, children: `🕒 ${t("windowRangeLabel")}:` }),
+															(0, react_jsx_runtime.jsx)("span", {
+																style: { color: "var(--dsw-alias-label-secondary, #4b5563)", fontFamily: "monospace" },
+																children: `${new Date(windowStartMs).toLocaleTimeString()} ~ ${new Date(windowEndMs).toLocaleTimeString()} (${activeValuationPeriod === "5h" ? t("windowNotice5h") : (activeValuationPeriod === "weekly" ? t("windowNoticeWeekly") : t("windowNoticeAll"))})`
+															})
+														]
+													}),
+													bucketResetTime && activeValuationPeriod !== "all" ? (0, react_jsx_runtime.jsxs)("div", {
+														style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", display: "flex", alignItems: "center", gap: 6 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", { children: `⏳ ${t("resetsIn")}: ${formatCountdown(bucketResetInSeconds)}` }),
+															(0, react_jsx_runtime.jsx)("span", { children: `(${bucketResetTime.slice(11, 16)} UTC)` })
+														]
+													}) : null
+												]
+											}),
+											// Progress bar for quota remaining in selected period
+											remainingPct !== null && activeValuationPeriod !== "all" ? (0, react_jsx_runtime.jsxs)("div", {
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 },
+														children: [
+															(0, react_jsx_runtime.jsxs)("span", { style: { color: "var(--dsw-alias-label-secondary, #6b7280)" }, children: [`${t("quotaConsumedPct")}: `, (0, react_jsx_runtime.jsx)("b", { style: { color: "#dc2626" }, children: `${usedPct}%` })] }),
+															(0, react_jsx_runtime.jsxs)("span", { style: { color: "var(--dsw-alias-label-secondary, #6b7280)" }, children: [`${t("quotaRemainingPct")}: `, (0, react_jsx_runtime.jsx)("b", { style: { color: "#16a34a" }, children: `${remainingPct}%` })] })
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { width: "100%", height: 6, borderRadius: 999, background: "#f3f4f6", overflow: "hidden" },
+														children: (0, react_jsx_runtime.jsx)("div", {
+															style: {
+																width: `${Math.min(100, Math.max(0, remainingPct))}%`,
+																height: "100%",
+																background: getPercentColor(remainingPct).bar,
+																borderRadius: 999,
+																transition: "width 0.3s"
+															}
+														})
+													})
+												]
+											}) : null
+										]
+									}),
+
+									// Valuation KPI Cards Grid
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 },
+										children: [
+											// Card 1: Consumed Cost in Period
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: {
+													padding: "12px",
+													borderRadius: 8,
+													background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+													border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
+													display: "flex",
+													flexDirection: "column",
+													justifyContent: "space-between"
+												},
+												children: [
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginBottom: 4 },
+														children: t("usedCostTitle")
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 18, fontWeight: 700, color: "var(--dsw-alias-label-primary, #111827)", marginBottom: 4 },
+														children: formatCurrency(totalPeriodUsdCost)
+													}),
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { fontSize: 10, color: "var(--dsw-alias-label-secondary, #6b7280)" },
+														children: [`↑${formatTokens(totalPeriodInputTokens)}  ↓${formatTokens(totalPeriodOutputTokens + totalPeriodReasoningTokens)}  ⚡${formatTokens(totalPeriodCacheReadTokens)}`]
+													})
+												]
+											}),
+
+											// Card 2: Quota Consumed Ratio
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: {
+													padding: "12px",
+													borderRadius: 8,
+													background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+													border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
+													display: "flex",
+													flexDirection: "column",
+													justifyContent: "space-between"
+												},
+												children: [
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginBottom: 4 },
+														children: activeValuationPeriod === "all" ? t("totalRequests") : t("quotaConsumedPct")
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 18, fontWeight: 700, color: activeValuationPeriod === "all" ? "var(--dsw-alias-label-primary, #111827)" : (usedPct && usedPct > 80 ? "#dc2626" : "var(--dsw-alias-label-primary, #111827)"), marginBottom: 4 },
+														children: activeValuationPeriod === "all" ? `${usageData?.summary?.totalRequests || 0} 次` : (usedPct !== null ? `${usedPct}%` : "—")
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 10, color: "var(--dsw-alias-label-secondary, #6b7280)" },
+														children: activeValuationPeriod === "all" ? `${formatTokens(usageData?.summary?.totalTokens || 0)} Total Tokens` : (remainingPct !== null ? `${t("remaining")}: ${remainingPct}%` : "—")
+													})
+												]
+											}),
+
+											// Card 3: Est. Total Quota Value
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: {
+													padding: "12px",
+													borderRadius: 8,
+													background: "#eff6ff",
+													border: "1px solid #bfdbfe",
+													display: "flex",
+													flexDirection: "column",
+													justifyContent: "space-between"
+												},
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { fontSize: 11, color: "#1e40af", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", { children: "🔮" }),
+															(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600 }, children: t("estTotalQuotaTitle") })
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 18, fontWeight: 700, color: "#1d4ed8", marginBottom: 4 },
+														children: estTotalQuotaUsd !== null ? formatCurrency(estTotalQuotaUsd) : (usedPct === 0 ? "100% 完整" : "待推算")
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 10, color: "#3b82f6" },
+														children: t("estFormulaHint")
+													})
+												]
+											}),
+
+											// Card 4: Est. Remaining Value
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: {
+													padding: "12px",
+													borderRadius: 8,
+													background: "#ecfdf5",
+													border: "1px solid #a7f3d0",
+													display: "flex",
+													flexDirection: "column",
+													justifyContent: "space-between"
+												},
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { fontSize: 11, color: "#065f46", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", { children: "🛡️" }),
+															(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600 }, children: t("estRemainingQuotaTitle") })
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 18, fontWeight: 700, color: "#047857", marginBottom: 4 },
+														children: estRemainingQuotaUsd !== null ? formatCurrency(estRemainingQuotaUsd) : (usedPct === 0 ? "完全就绪" : "待推算")
+													}),
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 10, color: "#059669" },
+														children: t("estRemainingHint")
+													})
+												]
+											})
+										]
+									}),
+
+									// Notice if zero usage or external usage
+									usedPct === 0 ? (0, react_jsx_runtime.jsxs)("div", {
+										style: { padding: "10px 14px", borderRadius: 6, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534", fontSize: 11, marginBottom: 14, display: "flex", alignItems: "center", gap: 6 },
+										children: [
+											(0, react_jsx_runtime.jsx)("span", { children: "💡" }),
+											(0, react_jsx_runtime.jsx)("span", { children: t("estZeroNotice") })
+										]
+									}) : (totalPeriodUsdCost === 0 && usedPct && usedPct > 0 ? (0, react_jsx_runtime.jsxs)("div", {
+										style: { padding: "10px 14px", borderRadius: 6, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", fontSize: 11, marginBottom: 14, display: "flex", alignItems: "center", gap: 6 },
+										children: [
+											(0, react_jsx_runtime.jsx)("span", { children: "ℹ️" }),
+											(0, react_jsx_runtime.jsx)("span", { children: t("estExtNotice") })
+										]
+									}) : null),
+
+									// Pricing & Valuation Table Section
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											borderRadius: 8,
+											border: "1px solid var(--dsw-alias-border-l3, #e5e7eb)",
+											background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+											padding: "12px 14px",
+											marginBottom: 16
+										},
+										children: [
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsx)("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" }, children: t("pricingTableTitle") }),
+															(0, react_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginTop: 2 }, children: t("pricingNote") })
+														]
+													}),
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", alignItems: "center", gap: 8 },
+														children: [
+															pricingSavedToast ? (0, react_jsx_runtime.jsx)("span", {
+																style: { fontSize: 11, color: "#16a34a", fontWeight: 500 },
+																children: `✅ ${t("pricingSavedToast")}`
+															}) : null,
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "4px 8px",
+																	borderRadius: 6,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																	fontSize: 11,
+																	color: "var(--dsw-alias-label-secondary, #4b5563)",
+																	cursor: "pointer"
+																},
+																onClick: () => setShowAllCatalogModels(!showAllCatalogModels),
+																children: showAllCatalogModels ? t("hideAllModelsToggle") : t("showAllModelsToggle")
+															}),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "4px 8px",
+																	borderRadius: 6,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																	fontSize: 11,
+																	color: "var(--dsw-alias-label-secondary, #4b5563)",
+																	cursor: "pointer"
+																},
+																onClick: handleResetPricing,
+																children: t("resetPricingBtn")
+															}),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "4px 10px",
+																	borderRadius: 6,
+																	border: "none",
+																	background: "var(--dsw-alias-brand-primary, #0284c7)",
+																	color: "#ffffff",
+																	fontSize: 11,
+																	fontWeight: 500,
+																	cursor: "pointer"
+																},
+																onClick: handleSavePricing,
+																children: t("savePricingBtn")
+															})
+														]
+													})
+												]
+											}),
+
+											// Table
+											(0, react_jsx_runtime.jsx)("div", {
+												style: { overflowX: "auto" },
+												children: (0, react_jsx_runtime.jsxs)("table", {
+													style: { width: "100%", borderCollapse: "collapse", fontSize: 11, textAlign: "left" },
+													children: [
+														(0, react_jsx_runtime.jsx)("thead", {
+															children: (0, react_jsx_runtime.jsxs)("tr", {
+																style: { borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e7eb)", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																children: [
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px" }, children: t("modelCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("inputTokensCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "center", width: 90 }, children: t("inputPriceCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("outputTokensCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "center", width: 90 }, children: t("outputPriceCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("cacheTokensCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "center", width: 90 }, children: t("cachePriceCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("periodCostCol") })
+																]
+															})
+														}),
+														(0, react_jsx_runtime.jsx)("tbody", {
+															children: modelCostList.length > 0 ? modelCostList.map((item, idx) => (0, react_jsx_runtime.jsxs)("tr", {
+																key: idx,
+																style: { borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)", background: item.usdCost > 0 ? "rgba(2, 132, 199, 0.02)" : "transparent" },
+																children: [
+																	// Model name
+																	(0, react_jsx_runtime.jsxs)("td", {
+																		style: { padding: "8px", fontWeight: 500, color: "var(--dsw-alias-label-primary, #111827)", whiteSpace: "nowrap" },
+																		children: [
+																			(0, react_jsx_runtime.jsx)("span", { children: item.modelId }),
+																			item.stats.requests > 0 ? (0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 10, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginLeft: 4 },
+																				children: `(${item.stats.requests}次)`
+																			}) : null
+																		]
+																	}),
+																	// Input Tokens
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "8px", textAlign: "right", color: item.stats.inputTokens > 0 ? "var(--dsw-alias-label-primary, #111827)" : "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																		children: formatTokens(item.stats.inputTokens)
+																	}),
+																	// Input Price Input
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "4px 6px", textAlign: "center" },
+																		children: (0, react_jsx_runtime.jsxs)("div", {
+																			style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 2 },
+																			children: [
+																				(0, react_jsx_runtime.jsx)("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: "$" }),
+																				(0, react_jsx_runtime.jsx)("input", {
+																					type: "number",
+																					step: "0.001",
+																					min: "0",
+																					style: {
+																						width: 60,
+																						height: 24,
+																						borderRadius: 4,
+																						border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																						background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																						color: "var(--dsw-alias-label-primary, #111827)",
+																						fontSize: 11,
+																						textAlign: "right",
+																						padding: "0 4px"
+																					},
+																					value: item.pricing.input,
+																					onChange: (e) => handlePriceChange(item.modelId, "input", e.target.value)
+																				})
+																			]
+																		})
+																	}),
+																	// Output Tokens (inc reasoning)
+																	(0, react_jsx_runtime.jsxs)("td", {
+																		style: { padding: "8px", textAlign: "right", color: item.outputWithReasoning > 0 ? "var(--dsw-alias-label-primary, #111827)" : "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																		title: `输出: ${item.stats.outputTokens}, 思维链: ${item.stats.reasoningTokens}`,
+																		children: [
+																			formatTokens(item.outputWithReasoning),
+																			item.stats.reasoningTokens > 0 ? (0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 10, color: "#8b5cf6", marginLeft: 4 },
+																				children: `(💭${formatTokens(item.stats.reasoningTokens)})`
+																			}) : null
+																		]
+																	}),
+																	// Output Price Input
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "4px 6px", textAlign: "center" },
+																		children: (0, react_jsx_runtime.jsxs)("div", {
+																			style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 2 },
+																			children: [
+																				(0, react_jsx_runtime.jsx)("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: "$" }),
+																				(0, react_jsx_runtime.jsx)("input", {
+																					type: "number",
+																					step: "0.01",
+																					min: "0",
+																					style: {
+																						width: 60,
+																						height: 24,
+																						borderRadius: 4,
+																						border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																						background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																						color: "var(--dsw-alias-label-primary, #111827)",
+																						fontSize: 11,
+																						textAlign: "right",
+																						padding: "0 4px"
+																					},
+																					value: item.pricing.output,
+																					onChange: (e) => handlePriceChange(item.modelId, "output", e.target.value)
+																				})
+																			]
+																		})
+																	}),
+																	// Cache Read Tokens
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "8px", textAlign: "right", color: item.stats.cacheReadTokens > 0 ? "#059669" : "var(--dsw-alias-label-tertiary, #9ca3af)", fontWeight: item.stats.cacheReadTokens > 0 ? 500 : 400 },
+																		children: formatTokens(item.stats.cacheReadTokens)
+																	}),
+																	// Cache Price Input
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "4px 6px", textAlign: "center" },
+																		children: (0, react_jsx_runtime.jsxs)("div", {
+																			style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 2 },
+																			children: [
+																				(0, react_jsx_runtime.jsx)("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: "$" }),
+																				(0, react_jsx_runtime.jsx)("input", {
+																					type: "number",
+																					step: "0.001",
+																					min: "0",
+																					style: {
+																						width: 60,
+																						height: 24,
+																						borderRadius: 4,
+																						border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																						background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																						color: "var(--dsw-alias-label-primary, #111827)",
+																						fontSize: 11,
+																						textAlign: "right",
+																						padding: "0 4px"
+																					},
+																					value: item.pricing.cache,
+																					onChange: (e) => handlePriceChange(item.modelId, "cache", e.target.value)
+																				})
+																			]
+																		})
+																	}),
+																	// Subtotal USD
+																	(0, react_jsx_runtime.jsx)("td", {
+																		style: { padding: "8px", textAlign: "right", fontWeight: 600, color: item.usdCost > 0 ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																		children: formatCurrency(item.usdCost)
+																	})
+																]
+															})) : (0, react_jsx_runtime.jsx)("tr", {
+																children: (0, react_jsx_runtime.jsx)("td", {
+																	colSpan: 8,
+																	style: { padding: "16px", textAlign: "center", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																	children: t("noUsageInWindow")
+																})
+															})
+														}),
+														// Table Footer Totals
+														(0, react_jsx_runtime.jsx)("tfoot", {
+															children: (0, react_jsx_runtime.jsxs)("tr", {
+																style: { borderTop: "2px solid var(--dsw-alias-border-l2, #e5e7eb)", fontWeight: 600 },
+																children: [
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", color: "var(--dsw-alias-label-primary, #111827)" }, children: t("totalPeriodCost") }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "var(--dsw-alias-label-primary, #111827)" }, children: formatTokens(totalPeriodInputTokens) }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px" } }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "var(--dsw-alias-label-primary, #111827)" }, children: formatTokens(totalPeriodOutputTokens + totalPeriodReasoningTokens) }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px" } }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "#059669" }, children: formatTokens(totalPeriodCacheReadTokens) }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px" } }),
+																	(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "#0284c7", fontSize: 13 }, children: formatCurrency(totalPeriodUsdCost) })
+																]
+															})
+														})
+													]
+												})
+											})
+										]
+									}),
+
+									// Per-Model Quota Breakdown (if quotaData.models is populated)
+									quotaData?.models?.length ? (0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											borderRadius: 8,
+											border: "1px solid var(--dsw-alias-border-l3, #e5e7eb)",
+											background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+											padding: "12px 14px"
+										},
+										children: [
+											(0, react_jsx_runtime.jsx)("div", {
+												style: { fontSize: 12, fontWeight: 600, color: "var(--dsw-alias-label-secondary, #6b7280)", marginBottom: 8 },
+												children: t("perModelEstTitle")
+											}),
+											(0, react_jsx_runtime.jsx)("div", {
+												style: { overflowX: "auto" },
+												children: (0, react_jsx_runtime.jsxs)("table", {
+													style: { width: "100%", borderCollapse: "collapse", fontSize: 11, textAlign: "left" },
+													children: [
+														(0, react_jsx_runtime.jsx)("thead", {
+															children: (0, react_jsx_runtime.jsxs)("tr", {
+																style: { borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e7eb)", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																children: [
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px" }, children: t("perModelHeader") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("perModelRemHeader") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("perModelCostHeader") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("perModelTotalHeader") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right" }, children: t("perModelRemValHeader") })
+																]
+															})
+														}),
+														(0, react_jsx_runtime.jsx)("tbody", {
+															children: quotaData.models.map((m, mIdx) => {
+																const colors = getPercentColor(m.remainingPercent ?? 100);
+																const itemCost = modelCostList.find(x => x.modelId === m.id)?.usdCost || 0;
+																const mRemFraction = m.remainingFraction;
+																const mUsedFraction = typeof mRemFraction === "number" ? Math.max(0, 1 - mRemFraction) : null;
+																let mEstTotal = null;
+																let mEstRem = null;
+																if (mUsedFraction !== null && mUsedFraction > 0.0001 && itemCost > 0) {
+																	mEstTotal = itemCost / mUsedFraction;
+																	mEstRem = mEstTotal * (mRemFraction ?? 0);
+																}
+																return (0, react_jsx_runtime.jsxs)("tr", {
+																	key: mIdx,
+																	style: { borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)" },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "6px 8px", fontWeight: 500, color: "var(--dsw-alias-label-primary, #111827)" }, children: m.displayName || m.id }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "6px 8px", textAlign: "right", fontWeight: 600, color: colors.text }, children: `${m.remainingPercent}%` }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "6px 8px", textAlign: "right", color: itemCost > 0 ? "var(--dsw-alias-label-primary, #111827)" : "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: formatCurrency(itemCost) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "6px 8px", textAlign: "right", color: mEstTotal !== null ? "#1d4ed8" : "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: mEstTotal !== null ? formatCurrency(mEstTotal) : "—" }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "6px 8px", textAlign: "right", color: mEstRem !== null ? "#047857" : "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: mEstRem !== null ? formatCurrency(mEstRem) : "—" })
+																	]
+																});
+															})
+														})
+													]
+												})
+											})
+										]
+									}) : null
+								]
+							}) : null,
+
+							// Tab 4: Configuration View
 							activeTab === "config" ? (0, react_jsx_runtime.jsxs)("div", {
 								style: { padding: "16px 20px 20px 20px" },
 								children: [
