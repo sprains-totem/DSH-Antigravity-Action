@@ -101,6 +101,13 @@ deploy_plugins() {
           sudo cp -rf "$p" "/usr/local/lib/node_modules/@dsh-external/dsh-mobile-nav"
         fi
       fi
+
+      # 针对 dsh-mobile-webui 挂载至前端 dist/mobile 静态目录
+      if [ "$pname" = "dsh-mobile-webui" ]; then
+        if [ -d "$p/dist" ] && [ -d "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist" ]; then
+          sudo ln -sfn "$(realpath "$p/dist")" "/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/mobile"
+        fi
+      fi
     done
   fi
 }

@@ -3,6 +3,9 @@
     - id: fail-soft
       name: dsh-fail-soft
 
+    - id: mobile-webui
+      name: dsh-mobile-webui
+
     - id: dsh-mobile-nav
       name: "@dsh-external/dsh-mobile-nav"
 

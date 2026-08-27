@@ -202,6 +202,17 @@ function walkAndPatch(rootDir) {
           ]);
         }
 
+        // Patch dsh-host-frontend-static (serve /mobile SPA route)
+        if (fullPath.includes('dsh-host-frontend-static') && fullPath.endsWith('index.js')) {
+          patchFile(fullPath, [
+            {
+              name: 'serve /mobile SPA route in frontend-static',
+              search: '		if (target === distRoot || target === distIndex) {\n\t\t\tbody = await renderIndex();\n\t\t\ttype = HTML_MIME;\n\t\t} else {\n\t\t\tbody = await readFile(target);\n\t\t\ttype = MIME[extname(target)] ?? "application/octet-stream";\n\t\t}',
+              replace: '		if (target === distRoot || target === distIndex) {\n\t\t\tbody = await renderIndex();\n\t\t\ttype = HTML_MIME;\n\t\t} else {\n\t\t\tlet readTarget = target;\n\t\t\tif (pathname === "/mobile" || pathname === "/mobile/" || pathname.startsWith("/mobile/session/")) {\n\t\t\t\treadTarget = join(distRoot, "mobile", "index.html");\n\t\t\t}\n\t\t\tbody = await readFile(readTarget);\n\t\t\ttype = MIME[extname(readTarget)] ?? "application/octet-stream";\n\t\t}',
+            }
+          ]);
+        }
+
         // Patch dsh-credentials-local (prevent 644 permission check crash)
         if (fullPath.includes('dsh-credentials-local')) {
           patchFile(fullPath, [

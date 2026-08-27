@@ -153,6 +153,11 @@ export default {
     proxyUrl.host = target.host;
     proxyUrl.port = target.port;
 
+    // 移动端专用 WebUI 路径映射
+    if (proxyUrl.pathname === '/mobile' || proxyUrl.pathname === '/mobile/') {
+      proxyUrl.pathname = '/mobile/index.html';
+    }
+
     const proxyHeaders = new Headers(request.headers);
     proxyHeaders.set("Host", target.host);
     proxyHeaders.set("X-Forwarded-Host", url.host);

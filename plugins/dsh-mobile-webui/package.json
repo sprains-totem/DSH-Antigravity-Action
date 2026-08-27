@@ -1,0 +1,22 @@
+{
+  "name": "dsh-mobile-webui",
+  "version": "1.0.0",
+  "description": "Dedicated mobile-first WebUI for DeepSeek Harness at /mobile",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "test": "node scripts/test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "lucide-preact": "^1.34.0",
+    "marked": "^18.0.11",
+    "preact": "^10.29.8"
+  }
+}
