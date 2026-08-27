@@ -225,11 +225,14 @@ run_dsh() {
   local is_rollback_attempt=0
 
   while true; do
+    # 每次启动前先将当前工作区的插件和补丁部署到 Web Profile
+    deploy_current_profile
+
     echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
     echo "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
     
-    # 启动 dsh web 并捕获输出与进程 PID
-    dsh web --port "${DSH_PORT}" 2>&1 | tee "$crash_log" &
+    # 启动 dsh web 并捕获输出与进程 PID（使用进程替换确保 $! 获取的是真正的 dsh PID 而非 tee）
+    dsh web --port "${DSH_PORT}" > >(tee "$crash_log") 2>&1 &
     local DSH_PID=$!
 
     echo "⏳ [A/B 自愈守护] 正在执行深度健康判定 (进程存活 + HTTP 握手 + 异常日志扫描)..."
