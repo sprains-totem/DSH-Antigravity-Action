@@ -1,7 +1,7 @@
 import { h, VNode } from 'preact';
 import { store } from '../store/state';
 import { ConnectionStatus } from './ConnectionStatus';
-import { MenuIcon, PlusIcon, ListTodoIcon, CpuIcon } from './Icons';
+import { MenuIcon, PlusIcon, ListTodoIcon, CpuIcon, SettingsIcon } from './Icons';
 
 export function Header({
   title,
@@ -12,6 +12,7 @@ export function Header({
   onNewChat,
   onOpenModelPicker,
   onOpenTodos,
+  onOpenSettings,
 }: {
   title: string;
   todosCount: number;
@@ -21,6 +22,7 @@ export function Header({
   onNewChat: () => void;
   onOpenModelPicker: () => void;
   onOpenTodos: () => void;
+  onOpenSettings: () => void;
 }): VNode {
   const shortModel = modelName.replace('gemini-', 'G-').replace('-high', '').replace('-medium', '');
 
@@ -51,9 +53,13 @@ export function Header({
 
         <button class="chip-btn" onClick={onOpenModelPicker} aria-label="切换模型">
           <CpuIcon size={13} />
-          <span style="max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <span style="max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             {shortModel || 'Gemini'}
           </span>
+        </button>
+
+        <button class="icon-btn" style="width: 32px; height: 32px;" onClick={onOpenSettings} aria-label="设置">
+          <SettingsIcon size={16} />
         </button>
 
         <ConnectionStatus state={connectionState} />

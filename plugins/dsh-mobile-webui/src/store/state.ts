@@ -28,6 +28,7 @@ class StateStore {
   public isModelPickerOpen = false;
   public isTodoDrawerOpen = false;
   public isToolInspectorOpen = false;
+  public isSettingsOpen = false;
   public activeTool: ToolExecution | null = null;
 
   // Human in the Loop & Subagents

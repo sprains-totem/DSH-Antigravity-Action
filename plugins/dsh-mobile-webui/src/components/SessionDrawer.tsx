@@ -20,6 +20,7 @@ export function SessionDrawer({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onOpenSettings,
   onClose,
 }: {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export function SessionDrawer({
   onSelectSession: (sessionId: string) => void;
   onNewChat: () => void;
   onDeleteSession: (sessionId: string) => void;
+  onOpenSettings: () => void;
   onClose: () => void;
 }): VNode | null {
   if (!isOpen) return null;
@@ -107,8 +109,26 @@ export function SessionDrawer({
           )}
         </div>
 
+        {/* Settings Bar */}
+        <div style="padding: 6px 12px; border-top: 1px solid var(--border-subtle);">
+          <div
+            class="session-item"
+            style="color: var(--text-primary);"
+            onClick={() => {
+              onClose();
+              onOpenSettings();
+            }}
+          >
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500;">
+              <span>⚙️</span>
+              <span>系统与模型设置</span>
+            </div>
+            <span style="font-size: 12px; color: var(--text-muted);">配置 →</span>
+          </div>
+        </div>
+
         {/* Drawer Footer */}
-        <div style="padding: 12px 16px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
+        <div style="padding: 10px 16px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
           <a href="/" style="color: var(--accent-primary); text-decoration: none;">
             切换至桌面版 UI →
           </a>
