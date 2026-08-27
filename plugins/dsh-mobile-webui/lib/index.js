@@ -116,11 +116,17 @@ function apply(ctx) {
     },
   };
 
-  ctx.effect(() => {
-    const dispose = ctx.webServer.register(route);
-    ctx.logger.info('[mobile-webui] Dedicated mobile WebUI mounted at /mobile');
-    return dispose;
-  }, 'mobile-webui: /mobile route');
+  ctx.inject(['webServer'], (httpCtx) => {
+    try {
+      const dispose = httpCtx.webServer.register(route);
+      (httpCtx.logger || ctx.logger || console).info?.('[mobile-webui] Dedicated mobile WebUI mounted at /mobile');
+      return dispose;
+    } catch (e) {
+      (httpCtx.logger || ctx.logger || console).warn?.(`[mobile-webui] Failed to register /mobile route: ${e?.message || e}`);
+    }
+  });
 }
+
+apply.inject = inject;
 
 export { apply, inject, name, apply as default };
