@@ -11,6 +11,7 @@ import { QuestionSheet } from './components/QuestionSheet';
 import { TodoPlanView } from './components/TodoPlanView';
 import { ModelPickerSheet } from './components/ModelPickerSheet';
 import { SettingsSheet } from './components/SettingsSheet';
+import { SessionSettingsSheet } from './components/SessionSettingsSheet';
 
 export function App(): VNode {
   const [, setTick] = useState(0);
@@ -40,11 +41,11 @@ export function App(): VNode {
         todosCount={store.todos.filter(t => t.status !== 'completed').length}
         modelName={store.currentModel.model}
         connectionState={store.connectionState}
-        onOpenDrawer={() => { store.isDrawerOpen = true; store.isSettingsOpen = false; store.isModelPickerOpen = false; store.isTodoDrawerOpen = false; setTick(t => t + 1); }}
+        onOpenDrawer={() => { store.isDrawerOpen = true; store.isSettingsOpen = false; store.isSessionSettingsOpen = false; store.isModelPickerOpen = false; store.isTodoDrawerOpen = false; setTick(t => t + 1); }}
         onNewChat={() => store.createSession()}
         onOpenModelPicker={() => { store.isModelPickerOpen = true; setTick(t => t + 1); }}
         onOpenTodos={() => { store.isTodoDrawerOpen = true; setTick(t => t + 1); }}
-        onOpenSettings={() => { store.isSettingsOpen = true; setTick(t => t + 1); }}
+        onOpenSessionSettings={() => { store.isSessionSettingsOpen = true; setTick(t => t + 1); }}
       />
 
       {/* 2. Trajectory Timeline & Chat View */}
@@ -112,7 +113,18 @@ export function App(): VNode {
         onClose={() => { store.isModelPickerOpen = false; setTick(t => t + 1); }}
       />
 
-      {/* 10. Dedicated Mobile Settings Sheet */}
+      {/* 10. Current Session Settings Sheet */}
+      <SessionSettingsSheet
+        isOpen={store.isSessionSettingsOpen}
+        onClose={() => { store.isSessionSettingsOpen = false; setTick(t => t + 1); }}
+        onOpenGlobalSettings={() => {
+          store.isSessionSettingsOpen = false;
+          store.isSettingsOpen = true;
+          setTick(t => t + 1);
+        }}
+      />
+
+      {/* 11. Dedicated Global Settings Sheet (System / Plugins / Config) */}
       <SettingsSheet
         isOpen={store.isSettingsOpen}
         onClose={() => { store.isSettingsOpen = false; setTick(t => t + 1); }}

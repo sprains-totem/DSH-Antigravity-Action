@@ -12,6 +12,8 @@ import {
   LoaderIcon,
   CopyIcon,
   TerminalIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from './Icons';
 
 export function SettingsSheet({
@@ -40,12 +42,24 @@ export function SettingsSheet({
   const [defaultProvider, setDefaultProvider] = useState<string>('antigravity');
   const [defaultModel, setDefaultModel] = useState<string>('gemini-3.7-flash-high');
   const [reasoningEffort, setReasoningEffort] = useState<string>('high');
-  const [deepseekApiKey, setDeepseekApiKey] = useState<string>('');
 
-  // Plugin Settings
-  const [searchProvider, setSearchProvider] = useState<string>('antigravity');
+  // Dynamic Open Plugins state
+  const [rawNamespaces, setRawNamespaces] = useState<any[]>([]);
+  const [selectedPluginNs, setSelectedPluginNs] = useState<string | null>(null);
+  const [dynamicFormState, setDynamicFormState] = useState<Record<string, any>>({});
+  const [activePluginSubTab, setActivePluginSubTab] = useState<'quota' | 'usage' | 'config'>('quota');
 
-  // UI state
+  // Antigravity Live Dashboard states
+  const [quotaData, setQuotaData] = useState<any>(null);
+  const [loadingQuota, setLoadingQuota] = useState(false);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [usageData, setUsageData] = useState<any>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+  const [clearingUsage, setClearingUsage] = useState(false);
+  const [draftToken, setDraftToken] = useState('');
+  const [draftBaseUrl, setDraftBaseUrl] = useState('');
+
+  // UI status
   const [saving, setSaving] = useState(false);
   const [savedTip, setSavedTip] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -58,14 +72,14 @@ export function SettingsSheet({
     try {
       const res = await store.client.rpc<{ namespaces: any[] }>('settings.describe');
       if (res && Array.isArray(res.namespaces)) {
+        setRawNamespaces(res.namespaces);
+
         for (const ns of res.namespaces) {
           const val = ns.user || ns.resolved || ns.base || {};
           if (ns.ns === 'agent-default-model') {
             if (val.provider) setDefaultProvider(val.provider);
             if (val.model) setDefaultModel(val.model);
             if (val.reasoningEffort) setReasoningEffort(val.reasoningEffort);
-          } else if (ns.ns === 'web-search-selector') {
-            if (val.provider) setSearchProvider(val.provider);
           } else if (ns.ns === 'permission') {
             if (val.defaultPreset) setDefaultPreset(val.defaultPreset);
           } else if (ns.ns === 'agent-loop') {
@@ -76,6 +90,8 @@ export function SettingsSheet({
             if (val.locale) setLocaleState(val.locale);
           } else if (ns.ns === 'ui-theme') {
             if (val.theme) setThemeState(val.theme);
+          } else if (ns.ns === 'llm-antigravity') {
+            if (val.baseURL) setDraftBaseUrl(val.baseURL);
           }
         }
       }
@@ -98,8 +114,80 @@ export function SettingsSheet({
         patch,
       });
       showSavedToast();
+      loadAllGlobalSettings();
     } catch (e) {
       console.error(`[mobile-settings] Failed to update ${ns}:`, e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Antigravity quota & usage fetchers
+  const fetchAntigravityQuota = async (force = false) => {
+    setLoadingQuota(true);
+    setQuotaError(null);
+    try {
+      const res = await fetch(`/api/antigravity/quota${force ? '?force=true' : ''}`, {
+        method: force ? 'POST' : 'GET',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setQuotaData(data);
+      } else {
+        const text = await res.text().catch(() => '');
+        setQuotaError(`HTTP ${res.status}: ${text.slice(0, 100) || '获取失败'}`);
+      }
+    } catch (err: any) {
+      setQuotaError(err?.message || '网络连接失败');
+    } finally {
+      setLoadingQuota(false);
+    }
+  };
+
+  const fetchAntigravityUsage = async () => {
+    setLoadingUsage(true);
+    try {
+      const res = await fetch('/api/antigravity/usage');
+      if (res.ok) {
+        const data = await res.json();
+        setUsageData(data);
+      }
+    } catch (err) {
+      console.error('[Antigravity] usage fetch failed:', err);
+    } finally {
+      setLoadingUsage(false);
+    }
+  };
+
+  const clearAntigravityUsage = async () => {
+    if (!confirm('确定清空所有 Antigravity 历史调用统计记录吗？')) return;
+    setClearingUsage(true);
+    try {
+      await fetch('/api/antigravity/clear-usage', { method: 'POST' });
+      await fetchAntigravityUsage();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setClearingUsage(false);
+    }
+  };
+
+  const saveAntigravityConfig = async () => {
+    setSaving(true);
+    try {
+      if (draftToken.trim()) {
+        await store.client.rpc('credentials.set', {
+          ref: 'ANTIGRAVITY_REFRESH_TOKEN',
+          value: draftToken.trim(),
+        }).catch(() => {});
+      }
+      if (draftBaseUrl.trim()) {
+        await updateNamespace('llm-antigravity', { baseURL: draftBaseUrl.trim() });
+      }
+      showSavedToast();
+      fetchAntigravityQuota(true);
+    } catch (err) {
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -159,25 +247,48 @@ export function SettingsSheet({
     });
   };
 
-  const handleSearchProviderChange = async (prov: string) => {
-    setSearchProvider(prov);
-    await updateNamespace('web-search-selector', { provider: prov });
+  // Open dynamic form handlers for any plugin namespace
+  const handleOpenPlugin = (ns: string) => {
+    setSelectedPluginNs(ns);
+    const nsObj = rawNamespaces.find(n => n.ns === ns);
+    const currentVal = nsObj ? (nsObj.user || nsObj.resolved || nsObj.base || {}) : {};
+    setDynamicFormState({ ...currentVal });
+
+    if (ns === 'llm-antigravity' || ns === 'dsh-llm-antigravity') {
+      fetchAntigravityQuota();
+      fetchAntigravityUsage();
+    }
   };
 
-  // Generate YAML preview of settings
-  const yamlContent = `ui-onboarding:
-  welcomeNoticeVersion: 2026-08-13.1
-web-search-selector:
-  provider: ${searchProvider}
-agent-default-model:
-  provider: ${defaultProvider}
-  model: ${defaultModel}
-permission:
-  defaultPreset: ${defaultPreset}
-agent-loop:
-  maxParallelToolCalls: ${maxParallelTools}
-shell:
-  timeoutMs: ${shellTimeout}`;
+  const handleSaveDynamicNamespace = async (ns: string) => {
+    await updateNamespace(ns, dynamicFormState);
+  };
+
+  // Format countdown for quota resets
+  const formatSeconds = (sec?: number) => {
+    if (!sec || sec <= 0) return '即将重置';
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    if (hrs > 0) return `${hrs}小时 ${mins}分`;
+    return `${mins}分钟`;
+  };
+
+  // Generate live YAML preview of settings
+  const yamlLines: string[] = [];
+  for (const item of rawNamespaces) {
+    const val = item.user || item.resolved || item.base;
+    if (val && Object.keys(val).length > 0) {
+      yamlLines.push(`${item.ns}:`);
+      for (const [k, v] of Object.entries(val)) {
+        if (typeof v === 'object') {
+          yamlLines.push(`  ${k}: ${JSON.stringify(v)}`);
+        } else {
+          yamlLines.push(`  ${k}: ${v}`);
+        }
+      }
+    }
+  }
+  const yamlContent = yamlLines.length > 0 ? yamlLines.join('\n') : `# ~/.dsh/settings.yaml\nagent-default-model:\n  provider: ${defaultProvider}\n  model: ${defaultModel}\npermission:\n  defaultPreset: ${defaultPreset}`;
 
   const copyYaml = () => {
     navigator.clipboard.writeText(yamlContent).then(() => {
@@ -197,12 +308,12 @@ shell:
         <div class="sheet-header">
           <div class="flex items-center gap-2">
             <span style="font-size: 18px;">⚙️</span>
-            <span class="sheet-title">全局系统设置 (Settings)</span>
+            <span class="sheet-title">系统全局设置 (Global Settings)</span>
             {saving && <LoaderIcon size={14} className="text-accent" />}
             {savedTip && (
               <span class="status-badge completed" style="font-size: 11px;">
                 <CheckCircleIcon size={11} />
-                <span>已同步保存</span>
+                <span>已同步</span>
               </span>
             )}
           </div>
@@ -217,25 +328,25 @@ shell:
             class={`settings-tab-btn ${activeTab === 'general' ? 'active' : ''}`}
             onClick={() => setActiveTab('general')}
           >
-            🛠️ 通用设置
+            🛠️ 通用系统
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'models' ? 'active' : ''}`}
             onClick={() => setActiveTab('models')}
           >
-            🧠 模型与提供方
+            🧠 默认模型
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'plugins' ? 'active' : ''}`}
             onClick={() => setActiveTab('plugins')}
           >
-            🔌 插件与工具
+            🔌 开放插件
           </button>
           <button
             class={`settings-tab-btn ${activeTab === 'yaml' ? 'active' : ''}`}
             onClick={() => setActiveTab('yaml')}
           >
-            📄 配置文件
+            📄 YAML 配置
           </button>
         </div>
 
@@ -368,11 +479,10 @@ shell:
           {/* ================= TAB 2: 模型与提供方 ================= */}
           {activeTab === 'models' && (
             <div>
-              {/* Default Model */}
               <div class="settings-section">
                 <div class="settings-section-title">
                   <CpuIcon size={14} />
-                  <span>全局默认 Agent 模型 (Default Model)</span>
+                  <span>新建会话默认 Agent 模型 (Default Model)</span>
                 </div>
                 <div class="settings-card">
                   {[
@@ -401,10 +511,9 @@ shell:
                 </div>
               </div>
 
-              {/* Reasoning Effort */}
               <div class="settings-section">
                 <div class="settings-section-title">
-                  <span>🧠 思考等级 (Reasoning Effort)</span>
+                  <span>🧠 默认思考等级 (Reasoning Effort)</span>
                 </div>
                 <div class="settings-card">
                   {[
@@ -426,114 +535,347 @@ shell:
                   ))}
                 </div>
               </div>
-
-              {/* Configured Providers */}
-              <div class="settings-section">
-                <div class="settings-section-title">
-                  <span>🔑 模型提供方凭据与端点 (Providers)</span>
-                </div>
-                <div class="settings-card" style="padding: 12px 14px; gap: 12px;">
-                  <div>
-                    <div class="flex items-center justify-between mb-1">
-                      <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">Google Antigravity (OAuth 2.0)</span>
-                      <span class="status-badge completed">已连接 Active</span>
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-                      • 凭据环境变量: <code style="color: var(--accent-primary);">ANTIGRAVITY_REFRESH_TOKEN</code><br />
-                      • 服务端点: <code style="font-size: 11px;">https://daily-cloudcode-pa.googleapis.com/v1internal</code><br />
-                      • 生图模型: <code style="font-size: 11px;">gemini-3.1-flash-image</code>
-                    </div>
-                  </div>
-
-                  <div style="border-top: 1px solid var(--border-subtle); padding-top: 10px;">
-                    <div class="flex items-center justify-between mb-1">
-                      <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">DeepSeek Official</span>
-                      <span class="status-badge" style="background: var(--bg-secondary); color: var(--text-secondary);">可选配置</span>
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-                      • API 密钥变量: <code style="color: var(--accent-primary);">DEEPSEEK_API_KEY</code><br />
-                      • 官方端点: <code style="font-size: 11px;">https://api.deepseek.com</code>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* ================= TAB 3: 插件与工具 ================= */}
+          {/* ================= TAB 3: 开放插件体系 (Open Plugins & Extensions) ================= */}
           {activeTab === 'plugins' && (
             <div>
-              {/* Web Search Provider */}
-              <div class="settings-section">
-                <div class="settings-section-title">
-                  <SearchIcon size={14} />
-                  <span>联网搜索提供方 (web-search-selector)</span>
-                </div>
-                <div class="settings-card">
-                  {[
-                    { id: 'antigravity', name: 'Google Antigravity 搜索源 (推荐)', desc: '基于 Google 原生联网与多源聚合，支持实时抓取' },
-                    { id: 'deepseek-official', name: 'DeepSeek 官方搜索源', desc: '调用 DeepSeek 原生 web_search 服务器工具' },
-                  ].map((p) => (
-                    <div
-                      key={p.id}
-                      class="settings-row"
-                      onClick={() => handleSearchProviderChange(p.id)}
+              {/* If a specific plugin is selected to view */}
+              {selectedPluginNs ? (
+                <div>
+                  {/* Back button */}
+                  <div class="flex items-center justify-between mb-3">
+                    <button
+                      class="chip-btn"
+                      onClick={() => setSelectedPluginNs(null)}
+                      style="font-size: 12px; padding: 4px 10px;"
                     >
-                      <div>
-                        <div class="settings-row-label">{p.name}</div>
-                        <div class="settings-row-desc">{p.desc}</div>
-                      </div>
-                      {searchProvider === p.id && <CheckIcon size={16} className="text-accent" />}
-                    </div>
-                  ))}
-                </div>
-              </div>
+                      ← 返回已挂载插件列表
+                    </button>
+                    <span style="font-weight: 600; font-size: 13px; color: var(--accent-primary);">
+                      {selectedPluginNs}
+                    </span>
+                  </div>
 
-              {/* Cloudflare Tunnel & Worker Router */}
-              <div class="settings-section">
-                <div class="settings-section-title">
-                  <span>☁️ 网络穿透与反代 (Cloudflare Tunnel)</span>
-                </div>
-                <div class="settings-card" style="padding: 12px 14px; gap: 8px; font-size: 12px;">
-                  <div class="flex items-center justify-between">
-                    <span style="color: var(--text-secondary);">Tunnel 运行状态</span>
-                    <span class="status-badge completed">在线 Online</span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span style="color: var(--text-secondary);">本地服务端口</span>
-                    <span style="font-weight: 600; color: var(--text-primary);">3080</span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span style="color: var(--text-secondary);">Worker 专属反代域名</span>
-                    <a href="https://dsh.b-1.workers.dev" target="_blank" style="color: var(--accent-primary); text-decoration: none;">dsh.b-1.workers.dev</a>
-                  </div>
-                </div>
-              </div>
-
-              {/* Installed Plugins Roster */}
-              <div class="settings-section">
-                <div class="settings-section-title">
-                  <span>📦 已挂载插件清单 (Plugin Roster)</span>
-                </div>
-                <div class="settings-card" style="padding: 10px 14px; gap: 6px; font-size: 12px;">
-                  {[
-                    { name: 'dsh-mobile-webui', desc: '独立移动端原生 WebUI 插件 (/mobile)', status: 'active' },
-                    { name: 'dsh-llm-antigravity', desc: 'Google Gemini 旗舰多模态推理引擎', status: 'active' },
-                    { name: 'dsh-web-search-selector', desc: '多源动态联网搜索选择器', status: 'active' },
-                    { name: 'dsh-image-gen-antigravity', desc: 'Gemini 3.1 图像生成与修改', status: 'active' },
-                    { name: 'dsh-fail-soft', desc: '全局运行时故障软隔离与异常保护', status: 'active' },
-                    { name: 'dsh-cloudflare-tunnel', desc: 'Cloudflare 隧道管理与路由同步', status: 'online' },
-                  ].map((p, idx) => (
-                    <div key={idx} class="flex items-center justify-between py-1" style="border-bottom: 1px solid var(--border-subtle);">
-                      <div>
-                        <div style="font-weight: 600; color: var(--text-primary);">{p.name}</div>
-                        <div style="color: var(--text-muted); font-size: 11px;">{p.desc}</div>
+                  {/* SPECIALIZED DASHBOARD: llm-antigravity / dsh-llm-antigravity */}
+                  {(selectedPluginNs === 'llm-antigravity' || selectedPluginNs === 'dsh-llm-antigravity') ? (
+                    <div>
+                      {/* Sub tab nav */}
+                      <div class="settings-tabs" style="margin-bottom: 12px;">
+                        <button
+                          class={`settings-tab-btn ${activePluginSubTab === 'quota' ? 'active' : ''}`}
+                          onClick={() => setActivePluginSubTab('quota')}
+                        >
+                          📊 实时额度
+                        </button>
+                        <button
+                          class={`settings-tab-btn ${activePluginSubTab === 'usage' ? 'active' : ''}`}
+                          onClick={() => setActivePluginSubTab('usage')}
+                        >
+                          📈 用量统计
+                        </button>
+                        <button
+                          class={`settings-tab-btn ${activePluginSubTab === 'config' ? 'active' : ''}`}
+                          onClick={() => setActivePluginSubTab('config')}
+                        >
+                          ⚙️ 基本配置
+                        </button>
                       </div>
-                      <span class="status-badge completed" style="font-size: 10px;">{p.status}</span>
+
+                      {/* SubTab 1: Quota */}
+                      {activePluginSubTab === 'quota' && (
+                        <div class="settings-card" style="padding: 14px; gap: 12px;">
+                          <div class="flex items-center justify-between">
+                            <div>
+                              <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">Google Antigravity 实时额度</div>
+                              <div style="font-size: 11px; color: var(--text-muted);">
+                                关联项目: {quotaData?.projectId || '未指定'} • 权益: {quotaData?.tier || 'Pro'}
+                              </div>
+                            </div>
+                            <button
+                              class="chip-btn"
+                              onClick={() => fetchAntigravityQuota(true)}
+                              disabled={loadingQuota}
+                              style="font-size: 11px; padding: 3px 8px;"
+                            >
+                              {loadingQuota ? <LoaderIcon size={12} /> : '🔄 刷新'}
+                            </button>
+                          </div>
+
+                          {quotaError ? (
+                            <div style="color: #ef4444; font-size: 12px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm);">
+                              {quotaError}
+                            </div>
+                          ) : quotaData ? (
+                            <div>
+                              {/* 5-Hour limit */}
+                              {quotaData.limit5h && (
+                                <div style="margin-bottom: 12px;">
+                                  <div class="flex items-center justify-between" style="font-size: 12px;">
+                                    <span style="font-weight: 500; color: var(--text-secondary);">5小时限额剩余</span>
+                                    <span style="font-weight: 700; color: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)';">
+                                      {quotaData.limit5h.pctRemaining}% ({formatSeconds(quotaData.limit5h.resetsInSeconds)}后重置)
+                                    </span>
+                                  </div>
+                                  <div class="quota-progress-track">
+                                    <div
+                                      class="quota-progress-fill"
+                                      style={{
+                                        width: `${Math.max(0, Math.min(100, quotaData.limit5h.pctRemaining))}%`,
+                                        background: quotaData.limit5h.pctRemaining < 20 ? '#ef4444' : 'var(--accent-primary)',
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Models quota list */}
+                              {Array.isArray(quotaData.models) && (
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                                  <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">分模型额度状态:</div>
+                                  {quotaData.models.map((m: any, idx: number) => (
+                                    <div key={idx} style="background: var(--bg-tertiary); padding: 8px 10px; border-radius: var(--radius-sm);">
+                                      <div class="flex items-center justify-between" style="font-size: 12px;">
+                                        <span style="font-weight: 500; color: var(--text-primary);">{m.modelId || m.name}</span>
+                                        <span style="color: var(--accent-primary); font-weight: 600;">{m.pctRemaining ?? 100}%</span>
+                                      </div>
+                                      <div class="quota-progress-track" style="margin: 4px 0 2px;">
+                                        <div
+                                          class="quota-progress-fill"
+                                          style={{
+                                            width: `${Math.max(0, Math.min(100, m.pctRemaining ?? 100))}%`,
+                                            background: (m.pctRemaining ?? 100) < 20 ? '#ef4444' : '#10b981',
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 16px;">
+                              {loadingQuota ? '正在查询最新额度...' : '点击刷新查询实时额度'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SubTab 2: Usage */}
+                      {activePluginSubTab === 'usage' && (
+                        <div class="settings-card" style="padding: 14px; gap: 12px;">
+                          <div class="flex items-center justify-between">
+                            <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">Token 用量统计</span>
+                            <div class="flex items-center gap-2">
+                              <button
+                                class="chip-btn"
+                                onClick={fetchAntigravityUsage}
+                                disabled={loadingUsage}
+                                style="font-size: 11px; padding: 3px 8px;"
+                              >
+                                {loadingUsage ? <LoaderIcon size={12} /> : '刷新'}
+                              </button>
+                              <button
+                                class="chip-btn"
+                                onClick={clearAntigravityUsage}
+                                disabled={clearingUsage}
+                                style="font-size: 11px; padding: 3px 8px; color: #ef4444;"
+                              >
+                                清空
+                              </button>
+                            </div>
+                          </div>
+
+                          <div class="plugin-metric-grid">
+                            <div class="plugin-metric-box">
+                              <span class="plugin-metric-label">调用总次数</span>
+                              <span class="plugin-metric-value">{usageData?.totalRequests ?? 0}</span>
+                            </div>
+                            <div class="plugin-metric-box">
+                              <span class="plugin-metric-label">输入 Tokens</span>
+                              <span class="plugin-metric-value">{(usageData?.totalInput ?? 0).toLocaleString()}</span>
+                            </div>
+                            <div class="plugin-metric-box">
+                              <span class="plugin-metric-label">输出 Tokens</span>
+                              <span class="plugin-metric-value">{(usageData?.totalOutput ?? 0).toLocaleString()}</span>
+                            </div>
+                            <div class="plugin-metric-box">
+                              <span class="plugin-metric-label">缓存命中率</span>
+                              <span class="plugin-metric-value" style="color: #10b981;">{usageData?.cacheHitRate ?? '0%'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SubTab 3: Config */}
+                      {activePluginSubTab === 'config' && (
+                        <div class="settings-card" style="padding: 14px; gap: 12px;">
+                          <div>
+                            <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
+                              OAuth 2.0 Refresh Token
+                            </label>
+                            <input
+                              type="password"
+                              class="settings-input"
+                              placeholder="填入 Refresh Token（留空保持不变）"
+                              value={draftToken}
+                              onInput={(e: any) => setDraftToken(e.target.value)}
+                            />
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                              保存在系统凭据服务中，用于自动换取 Google Cloud Code 访问凭证
+                            </div>
+                          </div>
+
+                          <div>
+                            <label style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 4px;">
+                              Base URL 接口端点
+                            </label>
+                            <input
+                              type="text"
+                              class="settings-input"
+                              placeholder="https://daily-cloudcode-pa.googleapis.com/v1internal"
+                              value={draftBaseUrl}
+                              onInput={(e: any) => setDraftBaseUrl(e.target.value)}
+                            />
+                          </div>
+
+                          <button
+                            class="chip-btn"
+                            style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 38px; font-weight: 600; justify-content: center;"
+                            onClick={saveAntigravityConfig}
+                            disabled={saving}
+                          >
+                            {saving ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
+                            <span>保存配置</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  ) : (
+                    /* UNIVERSAL DYNAMIC SCHEMA FORM for any other plugin namespace */
+                    <div class="settings-card" style="padding: 14px; gap: 12px;">
+                      <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">
+                        命名空间参数配置 ({selectedPluginNs})
+                      </div>
+                      <div style="font-size: 11px; color: var(--text-muted);">
+                        由插件自身声明的配置项，修改后自动同步至 Cordis 运行时
+                      </div>
+
+                      {Object.keys(dynamicFormState).length === 0 ? (
+                        <div style="font-size: 12px; color: var(--text-muted); padding: 12px 0;">
+                          该插件暂未声明公开属性或使用默认配置。
+                        </div>
+                      ) : (
+                        Object.entries(dynamicFormState).map(([key, val]) => {
+                          const isBool = typeof val === 'boolean';
+                          const isNum = typeof val === 'number';
+
+                          return (
+                            <div key={key} style="display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
+                              <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">
+                                {key}
+                              </label>
+                              {isBool ? (
+                                <select
+                                  class="settings-select"
+                                  value={String(val)}
+                                  onChange={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: e.target.value === 'true' })}
+                                >
+                                  <option value="true">true (启用)</option>
+                                  <option value="false">false (禁用)</option>
+                                </select>
+                              ) : isNum ? (
+                                <input
+                                  type="number"
+                                  class="settings-input"
+                                  value={val}
+                                  onInput={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: Number(e.target.value) })}
+                                />
+                              ) : (
+                                <input
+                                  type="text"
+                                  class="settings-input"
+                                  value={String(val || '')}
+                                  onInput={(e: any) => setDynamicFormState({ ...dynamicFormState, [key]: e.target.value })}
+                                />
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+
+                      <button
+                        class="chip-btn"
+                        style="background: var(--accent-primary); color: #fff; border-color: transparent; height: 38px; font-weight: 600; justify-content: center; margin-top: 4px;"
+                        onClick={() => handleSaveDynamicNamespace(selectedPluginNs)}
+                        disabled={saving}
+                      >
+                        {saving ? <LoaderIcon size={14} /> : <CheckIcon size={14} />}
+                        <span>保存此插件配置</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : (
+                /* OPEN PLUGIN ROSTER: Dynamically discovered namespaces and plugins */
+                <div>
+                  <div class="settings-section">
+                    <div class="settings-section-title">
+                      <span>📦 运行实例已挂载插件与命名空间 (Open Plugins)</span>
+                    </div>
+                    <div class="settings-card" style="padding: 10px 14px; gap: 8px;">
+                      {rawNamespaces.length === 0 ? (
+                        <div style="font-size: 12px; color: var(--text-muted); padding: 12px; text-align: center;">
+                          正在自省发现插件...
+                        </div>
+                      ) : (
+                        rawNamespaces.map((nsItem) => {
+                          const nsName = nsItem.ns;
+                          return (
+                            <div
+                              key={nsName}
+                              class="flex items-center justify-between py-2"
+                              style="border-bottom: 1px solid var(--border-subtle); cursor: pointer;"
+                              onClick={() => handleOpenPlugin(nsName)}
+                            >
+                              <div style="min-width: 0; flex: 1; padding-right: 8px;">
+                                <div style="font-weight: 600; font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                                  <span>🔌 {nsItem.title || nsName}</span>
+                                </div>
+                                <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">
+                                  命名空间: <code style="color: var(--accent-primary);">{nsName}</code>
+                                </div>
+                              </div>
+                              <div class="flex items-center gap-2">
+                                <span class="status-badge completed" style="font-size: 10px;">Active</span>
+                                <ChevronRightIcon size={14} className="text-muted" />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Network Tunnel Status */}
+                  <div class="settings-section">
+                    <div class="settings-section-title">
+                      <span>☁️ Cloudflare Quick Tunnel 穿透</span>
+                    </div>
+                    <div class="settings-card" style="padding: 12px 14px; gap: 8px; font-size: 12px;">
+                      <div class="flex items-center justify-between">
+                        <span style="color: var(--text-secondary);">服务状态</span>
+                        <span class="status-badge completed">在线 Online</span>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <span style="color: var(--text-secondary);">Worker 路由域名</span>
+                        <a href="https://dsh.b-1.workers.dev" target="_blank" style="color: var(--accent-primary); text-decoration: none;">dsh.b-1.workers.dev</a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

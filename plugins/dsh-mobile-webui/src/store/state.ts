@@ -28,6 +28,7 @@ class StateStore {
   public isModelPickerOpen = false;
   public isTodoDrawerOpen = false;
   public isToolInspectorOpen = false;
+  public isSessionSettingsOpen = false;
   public isSettingsOpen = false;
   public activeTool: ToolExecution | null = null;
 

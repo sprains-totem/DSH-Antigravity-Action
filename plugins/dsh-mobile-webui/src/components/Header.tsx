@@ -12,7 +12,7 @@ export function Header({
   onNewChat,
   onOpenModelPicker,
   onOpenTodos,
-  onOpenSettings,
+  onOpenSessionSettings,
 }: {
   title: string;
   todosCount: number;
@@ -22,17 +22,17 @@ export function Header({
   onNewChat: () => void;
   onOpenModelPicker: () => void;
   onOpenTodos: () => void;
-  onOpenSettings: () => void;
+  onOpenSessionSettings: () => void;
 }): VNode {
   const shortModel = modelName.replace('gemini-', 'G-').replace('-high', '').replace('-medium', '');
 
   return (
     <header class="app-header">
       <div class="header-left">
-        <button class="icon-btn" onClick={onOpenDrawer} aria-label="打开会话列表">
+        <button class="icon-btn" onClick={onOpenDrawer} aria-label="打开会话列表" title="会话列表">
           <MenuIcon size={20} />
         </button>
-        <button class="icon-btn" onClick={onNewChat} aria-label="新建会话">
+        <button class="icon-btn" onClick={onNewChat} aria-label="新建会话" title="新建会话">
           <PlusIcon size={20} />
         </button>
       </div>
@@ -51,14 +51,20 @@ export function Header({
           </button>
         )}
 
-        <button class="chip-btn" onClick={onOpenModelPicker} aria-label="切换模型">
+        <button class="chip-btn" onClick={onOpenModelPicker} aria-label="切换模型" title="切换当前模型">
           <CpuIcon size={13} />
           <span style="max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             {shortModel || 'Gemini'}
           </span>
         </button>
 
-        <button class="icon-btn" style="width: 32px; height: 32px;" onClick={onOpenSettings} aria-label="设置">
+        <button
+          class="icon-btn"
+          style="width: 32px; height: 32px;"
+          onClick={onOpenSessionSettings}
+          aria-label="当前会话独立设置"
+          title="当前会话独立设置"
+        >
           <SettingsIcon size={16} />
         </button>
 
