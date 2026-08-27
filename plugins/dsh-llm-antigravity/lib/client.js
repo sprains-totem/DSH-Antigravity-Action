@@ -213,32 +213,32 @@
 	};
 
 	const DEFAULT_MODEL_PRICING = {
-		"gemini-3.7-flash-high": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.7-flash-medium": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.7-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.7-flash-tiered": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.6-flash-high": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.6-flash-medium": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.6-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.6-flash-tiered": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.5-flash-low": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.5-flash-extra-low": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3-flash": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3-flash-agent": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-3.1-flash-lite": { input: 0.075, output: 0.30, cache: 0.01875 },
-		"gemini-3.1-flash-image": { input: 0.10, output: 0.40, cache: 0.025 },
+		"gemini-3.7-flash-high": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.7-flash-medium": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.7-flash-low": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.7-flash-tiered": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.6-flash-high": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.6-flash-medium": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.6-flash-low": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.6-flash-tiered": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.5-flash-low": { input: 1.50, output: 9.00, cache: 0.15 },
+		"gemini-3.5-flash-extra-low": { input: 1.50, output: 9.00, cache: 0.15 },
+		"gemini-3-flash": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3-flash-agent": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.1-flash-lite": { input: 0.25, output: 1.50, cache: 0.025 },
+		"gemini-3.1-flash-image": { input: 0.25, output: 1.50, cache: 0.025 },
 		"gemini-2.5-flash": { input: 0.10, output: 0.40, cache: 0.025 },
 		"gemini-2.5-flash-lite": { input: 0.075, output: 0.30, cache: 0.01875 },
-		"gemini-2.5-flash-thinking": { input: 0.10, output: 0.40, cache: 0.025 },
-		"gemini-2.5-pro": { input: 1.25, output: 5.00, cache: 0.3125 },
-		"gemini-3.1-pro-high": { input: 1.25, output: 5.00, cache: 0.3125 },
-		"gemini-3.1-pro-low": { input: 1.25, output: 5.00, cache: 0.3125 },
-		"gemini-pro-agent": { input: 1.25, output: 5.00, cache: 0.3125 },
+		"gemini-2.5-flash-thinking": { input: 0.30, output: 2.50, cache: 0.075 },
+		"gemini-2.5-pro": { input: 1.25, output: 10.00, cache: 0.125 },
+		"gemini-3.1-pro-high": { input: 2.00, output: 12.00, cache: 0.20 },
+		"gemini-3.1-pro-low": { input: 2.00, output: 12.00, cache: 0.20 },
+		"gemini-pro-agent": { input: 2.00, output: 12.00, cache: 0.20 },
 		"claude-sonnet-4-6": { input: 3.00, output: 15.00, cache: 0.30 },
 		"claude-opus-4-6-thinking": { input: 15.00, output: 75.00, cache: 1.50 },
 		"gpt-oss-120b-medium": { input: 0.50, output: 2.00, cache: 0.10 }
 	};
-	const DEFAULT_FALLBACK_PRICING = { input: 0.10, output: 0.40, cache: 0.025 };
+	const DEFAULT_FALLBACK_PRICING = { input: 0.75, output: 3.75, cache: 0.1875 };
 
 	function getModelGroup(modelId) {
 		const lower = (modelId || "").toLowerCase();

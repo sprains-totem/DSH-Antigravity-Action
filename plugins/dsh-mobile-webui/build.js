@@ -59,6 +59,7 @@ async function build() {
 
     let esbuildBin = possibleBinaries.find((b) => fs.existsSync(b)) || 'esbuild';
 
+    const nodePaths = process.env.NODE_PATH || '/usr/local/lib/node_modules';
     const args = [
       path.resolve(__dirname, 'src/main.tsx'),
       '--bundle',
@@ -78,6 +79,7 @@ async function build() {
       stdio: 'inherit',
       cwd: __dirname,
       shell: process.platform === 'win32',
+      env: { ...process.env, NODE_PATH: nodePaths },
     });
 
     if (res.status === 0) {

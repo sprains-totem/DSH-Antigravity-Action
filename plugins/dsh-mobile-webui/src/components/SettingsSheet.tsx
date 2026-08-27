@@ -64,13 +64,21 @@ export function SettingsSheet({
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
-      'gemini-3.7-flash-high': { input: 0.10, output: 0.40, cache: 0.025 },
-      'gemini-3.7-flash-medium': { input: 0.10, output: 0.40, cache: 0.025 },
-      'gemini-3.7-flash-low': { input: 0.10, output: 0.40, cache: 0.025 },
-      'gemini-2.5-pro': { input: 1.25, output: 5.00, cache: 0.3125 },
+      'gemini-3.7-flash-high': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.7-flash-medium': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.7-flash-low': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.7-flash-tiered': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.6-flash-high': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.5-flash-low': { input: 1.50, output: 9.00, cache: 0.15 },
+      'gemini-3-flash': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.1-pro-high': { input: 2.00, output: 12.00, cache: 0.20 },
+      'gemini-3.1-flash-lite': { input: 0.25, output: 1.50, cache: 0.025 },
+      'gemini-2.5-pro': { input: 1.25, output: 10.00, cache: 0.125 },
       'gemini-2.5-flash': { input: 0.10, output: 0.40, cache: 0.025 },
+      'gemini-2.5-flash-thinking': { input: 0.30, output: 2.50, cache: 0.075 },
       'claude-sonnet-4-6': { input: 3.00, output: 15.00, cache: 0.30 },
       'claude-opus-4-6-thinking': { input: 15.00, output: 75.00, cache: 1.50 },
+      'gpt-oss-120b-medium': { input: 0.50, output: 2.00, cache: 0.10 },
     };
   });
 
@@ -870,7 +878,7 @@ export function SettingsSheet({
                                 const modelList = Object.keys(modelStats).length > 0 ? Object.keys(modelStats) : ['gemini-3.7-flash-high'];
                                 const rows = modelList.map(mId => {
                                   const st = modelStats[mId] || { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 };
-                                  const p = mobilePricing[mId] || { input: 0.10, output: 0.40, cache: 0.025 };
+                                  const p = mobilePricing[mId] || { input: 0.75, output: 3.75, cache: 0.1875 };
                                   const outWithReasoning = (st.outputTokens || 0) + (st.reasoningTokens || 0);
                                   const cost = (st.inputTokens * p.input + outWithReasoning * p.output + st.cacheReadTokens * p.cache) / 1000000;
                                   totalIn += st.inputTokens;
