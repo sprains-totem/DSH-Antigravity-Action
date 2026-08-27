@@ -17,46 +17,40 @@ export function liftDshRestrictions(logger) {
     const searchDirs = new Set([
       '/usr/local/lib/node_modules',
       '/usr/lib/node_modules',
-      path.join(process.env.HOME || '', '.dsh'),
-      path.join(process.env.USERPROFILE || '', '.dsh'),
-      path.resolve(process.cwd(), 'node_modules'),
-      path.resolve(process.cwd(), '..', 'node_modules'),
-      path.resolve(process.cwd(), 'plugins')
+      path.join(process.env.HOME || '', '.dsh', 'profiles', 'web', 'node_modules'),
+      path.join(process.env.HOME || '', '.dsh', 'node_modules')
     ]);
 
     if (process.env.NODE_PATH) {
       process.env.NODE_PATH.split(path.delimiter).forEach(p => {
-        if (p) searchDirs.add(path.resolve(p));
+        if (p && !p.includes('plugins')) searchDirs.add(path.resolve(p));
       });
     }
 
     function unlockFile(fullPath) {
+      if (fullPath.includes('dsh-cloudflare-tunnel') || fullPath.includes('/plugins/')) return;
       try {
         let code = readFileSync(fullPath, 'utf8');
-        let changed = false;
+        let initialCode = code;
 
         // 1. 服务端 index.js (PRIVILEGED_METHODS & isTrustedApiRequest)
         if (code.includes('PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])')) {
           code = code.replaceAll('PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])', 'false');
-          changed = true;
         }
 
         if (code.includes('interceptor.options.authority === "loopback" && !isTrustedApiRequest(request, [])')) {
           code = code.replaceAll('interceptor.options.authority === "loopback" && !isTrustedApiRequest(request, [])', 'false');
-          changed = true;
         }
 
         if (code.includes('const trustedHosts = options.authority === "loopback" ? [] : this.trustedHosts;')) {
           code = code.replaceAll('const trustedHosts = options.authority === "loopback" ? [] : this.trustedHosts;', 'const trustedHosts = this.trustedHosts;');
-          changed = true;
         }
 
         if (code.includes('function isTrustedApiRequest(request, trustedHosts) {') && !code.includes('/* UNLOCKED */')) {
           code = code.replace(
             'function isTrustedApiRequest(request, trustedHosts) {',
-            'function isTrustedApiRequest(request, trustedHosts) { /* UNLOCKED */ return true;'
+            'function isTrustedApiRequest(request, trustedHosts) { return true; /* UNLOCKED */'
           );
-          changed = true;
         }
 
         // 2. 客户端 client.js (isLoopback)
@@ -65,7 +59,6 @@ export function liftDshRestrictions(logger) {
             'function isLoopbackHostname(hostname) {',
             'function isLoopbackHostname(hostname) { return true; /* UNLOCKED */'
           );
-          changed = true;
         }
 
         if (code.includes('isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)')) {
@@ -73,19 +66,17 @@ export function liftDshRestrictions(logger) {
             'isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)',
             'isLoopback: true /* UNLOCKED */'
           );
-          changed = true;
         }
 
-        // 3. 设置持久化 (connection.isLoopback ? "host" : "memory" -> "host")
-        if (code.includes('connection.isLoopback ? "host" : "memory"')) {
+        // 3. 设置持久化 (connection.isLoopback ? "host" : "remote" -> "host")
+        if (code.includes('connection.isLoopback ? "host" : "remote"')) {
           code = code.replaceAll(
-            'connection.isLoopback ? "host" : "memory"',
+            'connection.isLoopback ? "host" : "remote"',
             '"host" /* UNLOCKED */'
           );
-          changed = true;
         }
 
-        if (changed) {
+        if (code !== initialCode) {
           writeFileSync(fullPath, code, 'utf8');
           logger?.info?.(`[cloudflare-tunnel] Unlocked general DSH restrictions in: ${fullPath}`);
         }
@@ -101,7 +92,7 @@ export function liftDshRestrictions(logger) {
         for (const entry of entries) {
           const full = path.join(dir, entry.name);
           if (entry.isDirectory()) {
-            if (entry.name !== '.git') walkDir(full);
+            if (entry.name !== '.git' && entry.name !== 'plugins') walkDir(full);
           } else if (entry.name.endsWith('.js') || entry.name.endsWith('.mjs')) {
             unlockFile(full);
           }
