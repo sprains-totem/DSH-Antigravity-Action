@@ -77,7 +77,6 @@ class StateStore {
     this.client.start();
     await this.refreshSessions();
 
-    // Auto-select last active session or create new
     if (this.sessions.length > 0 && !this.currentSessionId) {
       const savedId = localStorage.getItem('dsh_mobile_active_session');
       const target = this.sessions.find(s => s.sessionId === savedId) || this.sessions[0];
@@ -100,14 +99,14 @@ class StateStore {
   private handleMuxFrame(payload: any, rpcId?: string) {
     if (!payload || typeof payload !== 'object') return;
 
-    // 1. Session Event (User message, Assistant chunks, Tool calls, Results)
+    // 1. Session Event
     if (payload.type === 'session/event' && payload.sessionId === this.currentSessionId) {
       this.processSessionEvent(payload.event);
       this.notify();
       return;
     }
 
-    // 2. Session Projections (Title, Todos, Goal, Tokens, Stats, Permissions)
+    // 2. Session Projections
     if (payload.type === 'session/projection' && payload.sessionId === this.currentSessionId) {
       this.applyProjection(payload.key, payload.value);
       this.notify();
@@ -136,7 +135,7 @@ class StateStore {
       return;
     }
 
-    // 4. User Questions (ask_user_question)
+    // 4. User Questions
     if (payload.type === 'question/requested' && payload.sessionId === this.currentSessionId) {
       this.pendingQuestion = {
         rpcId: rpcId || '',
@@ -264,7 +263,6 @@ class StateStore {
     this.historyLoading = true;
 
     try {
-      // Fetch generous maxMessages to get complete history
       const res = await this.client.rpc<{ events: any[] }>('session.history', {
         sessionId,
         maxMessages: 500,
@@ -353,21 +351,30 @@ class StateStore {
   private processSessionEvent(ev: any) {
     if (!ev || !ev.type) return;
 
-    // 1. User Message
+    // 1. Turn Lifecycle Start
+    if (ev.type === 'turn/start') {
+      const turnNum = ev.data?.turn;
+      this.ensureTurn(turnNum);
+      return;
+    }
+
+    // 2. User Message (always belongs to the current open turn!)
     if (ev.type === 'user/message') {
       const data = ev.data;
       if (data && data.source && data.source.kind === 'user') {
         const textBlocks = data.content?.filter((c: any) => c.type === 'text') || [];
         const text = textBlocks.map((c: any) => c.text).join('\n');
-        const images = data.content?.filter((c: any) => c.type === 'image')?.map((c: any) => c.previewUrl || '') || [];
+        const images = data.content?.filter((c: any) => c.type === 'image')?.map((c: any) => c.previewUrl || c.data || '') || [];
 
-        // Check if there's an optimistic sending message matching text
-        const existing = this.turns.find(t => t.userMessage?.text === text && t.userMessage.status === 'sending');
-        if (existing && existing.userMessage) {
-          existing.userMessage.status = 'sent';
-          existing.userMessage.id = data.id || existing.userMessage.id;
+        // Attach to the latest turn or create one if empty
+        const turn = this.turns.length > 0 ? this.turns[this.turns.length - 1] : this.ensureTurn(1);
+
+        const optimistic = this.turns.find(t => t.userMessage?.status === 'sending' && t.userMessage?.text === text);
+        if (optimistic && optimistic.userMessage) {
+          optimistic.userMessage.status = 'sent';
+          optimistic.userMessage.id = data.id || optimistic.userMessage.id;
+          optimistic.userMessage.timestamp = ev.time || optimistic.userMessage.timestamp;
         } else {
-          const turn = this.ensureTurn(this.turns.length + 1);
           turn.userMessage = {
             id: data.id || `msg_${Date.now()}`,
             text,
@@ -380,12 +387,7 @@ class StateStore {
       return;
     }
 
-    // 2. Lifecycle
-    if (ev.type === 'turn/start') {
-      this.ensureTurn(ev.data?.turn);
-      return;
-    }
-
+    // 3. Step Start
     if (ev.type === 'step/start') {
       const turn = this.ensureTurn(ev.data?.turn);
       this.ensureStep(turn, ev.data?.step);
@@ -395,7 +397,7 @@ class StateStore {
     const currentTurn = this.ensureTurn(ev.data?.turn);
     const currentStep = this.ensureStep(currentTurn, ev.data?.step);
 
-    // 3. Assistant Chunk
+    // 4. Assistant Chunk
     if (ev.type === 'assistant/chunk') {
       const chunk = ev.data?.chunk;
       if (!chunk) return;
@@ -429,7 +431,7 @@ class StateStore {
       return;
     }
 
-    // 4. Assistant Message
+    // 5. Assistant Message
     if (ev.type === 'assistant/message') {
       const data = ev.data;
       if (data?.message?.content) {
@@ -459,7 +461,7 @@ class StateStore {
       return;
     }
 
-    // 5. Tool Call
+    // 6. Tool Call
     if (ev.type === 'tool/call') {
       const data = ev.data;
       if (data?.callId) {
@@ -478,7 +480,7 @@ class StateStore {
       return;
     }
 
-    // 6. Tool Result
+    // 7. Tool Result
     if (ev.type === 'tool/result') {
       const data = ev.data;
       const results = data?.message?.content || [];
@@ -499,17 +501,20 @@ class StateStore {
       return;
     }
 
-    // 7. Todo Write
+    // 8. Todo Write
     if (ev.type === 'todo/write' && ev.data?.todos) {
       this.todos = ev.data.todos;
       return;
     }
 
-    // 8. Turn End
+    // 9. Turn End
     if (ev.type === 'turn/end') {
-      currentTurn.status = 'completed';
-      currentStep.status = 'completed';
-      this.isGenerating = false;
+      const turn = this.ensureTurn(ev.data?.turn);
+      turn.status = 'completed';
+      for (const s of turn.steps) s.status = 'completed';
+      if (this.turns[this.turns.length - 1] === turn) {
+        this.isGenerating = false;
+      }
       return;
     }
   }
@@ -521,8 +526,11 @@ class StateStore {
     const trimmed = text.trim();
     const tempId = `temp_${Date.now()}`;
 
-    // 1. OPTIMISTIC ECHO: Add message to chat immediately!
-    const turn = this.ensureTurn(this.turns.length + 1);
+    // 1. Calculate next turn number (lastTurn.turn + 1 or 1)
+    const nextTurnNum = this.turns.length > 0 ? this.turns[this.turns.length - 1].turn + 1 : 1;
+
+    // 2. OPTIMISTIC ECHO: Add turn with userMessage immediately
+    const turn = this.ensureTurn(nextTurnNum);
     turn.userMessage = {
       id: tempId,
       text: trimmed,
@@ -530,48 +538,37 @@ class StateStore {
       timestamp: Date.now(),
       status: 'sending',
     };
-    turn.steps = [{
-      turn: turn.turn,
-      step: 1,
-      reasoning: '',
-      isReasoningStreaming: false,
-      assistantText: '',
-      isTextStreaming: false,
-      toolCalls: [],
-      status: 'running',
-    }];
+    turn.steps = [];
     turn.status = 'running';
 
     this.isGenerating = true;
     this.notify();
 
-    // 2. HTTP POST prompt
+    // 3. HTTP POST prompt with exact schema { sessionId, mode, content }
     try {
       const content = [
-        ...images.map(img => ({ type: 'image', previewUrl: img })),
+        ...images.map(img => ({ type: 'image', mediaType: 'image/png', data: img })),
         ...(trimmed ? [{ type: 'text', text: trimmed }] : []),
       ];
 
-      const res = await this.client.rpc<{ ok: boolean }>('session.prompt', {
+      const res = await this.client.rpc<{ accepted?: boolean }>('session.prompt', {
         sessionId: this.currentSessionId,
-        prompt: content,
         mode: 'queue',
+        content,
       });
 
-      if (!res?.ok) {
-        throw new Error('Prompt rejected');
+      if (res?.accepted !== true) {
+        throw new Error('Prompt not accepted');
       }
 
-      const msg = this.turns.find(t => t.userMessage?.id === tempId);
-      if (msg && msg.userMessage) {
-        msg.userMessage.status = 'sent';
+      if (turn.userMessage) {
+        turn.userMessage.status = 'sent';
         this.notify();
       }
     } catch (err: any) {
       console.error('[mobile-state] sendPrompt error:', err);
-      const msg = this.turns.find(t => t.userMessage?.id === tempId);
-      if (msg && msg.userMessage) {
-        msg.userMessage.status = 'error';
+      if (turn.userMessage) {
+        turn.userMessage.status = 'error';
         this.isGenerating = false;
         this.notify();
       }
