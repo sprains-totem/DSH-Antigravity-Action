@@ -86,6 +86,7 @@ Accept-Encoding: gzip
         "parts": [
           {
             "functionResponse": {
+              "id": "call_101",
               "name": "list_dir",
               "response": { "result": "[\"src\", \"README.md\"]" }
             }

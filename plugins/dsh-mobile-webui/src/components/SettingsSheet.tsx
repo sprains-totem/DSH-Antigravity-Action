@@ -594,6 +594,7 @@ export function SettingsSheet({
                     { id: 'gemini-3.6-flash-high', prov: 'antigravity', name: 'Gemini 3.6 Flash High', desc: '高性能推理模型' },
                     { id: 'gemini-3.1-flash-lite', prov: 'antigravity', name: 'Gemini 3.1 Flash Lite', desc: '轻量极速多模态模型' },
                     { id: 'claude-sonnet-4-6', prov: 'antigravity', name: 'Claude Sonnet 4.6', desc: 'Claude 顶尖编程与架构分析模型' },
+                    { id: 'claude-opus-4-6-thinking', prov: 'antigravity', name: 'Claude Opus 4.6 Thinking', desc: 'Claude 顶尖推理与超长程分析模型' },
                     { id: 'gpt-oss-120b-medium', prov: 'antigravity', name: 'GPT-OSS 120B Medium', desc: '开源百亿级代码推理模型' },
                   ].map((m) => {
                     const isSelected = defaultModel === m.id && defaultProvider === m.prov;

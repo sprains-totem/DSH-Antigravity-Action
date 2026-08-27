@@ -235,7 +235,11 @@
 		"gemini-3.1-pro-low": { input: 2.00, output: 12.00, cache: 0.20 },
 		"gemini-pro-agent": { input: 2.00, output: 12.00, cache: 0.20 },
 		"claude-sonnet-4-6": { input: 3.00, output: 15.00, cache: 0.30 },
+		"claude-sonnet": { input: 3.00, output: 15.00, cache: 0.30 },
 		"claude-opus-4-6-thinking": { input: 15.00, output: 75.00, cache: 1.50 },
+		"claude-opus-4-6": { input: 15.00, output: 75.00, cache: 1.50 },
+		"claude-opus": { input: 15.00, output: 75.00, cache: 1.50 },
+		"opus": { input: 15.00, output: 75.00, cache: 1.50 },
 		"gpt-oss-120b-medium": { input: 0.50, output: 2.00, cache: 0.10 }
 	};
 	const DEFAULT_FALLBACK_PRICING = { input: 0.75, output: 3.75, cache: 0.1875 };

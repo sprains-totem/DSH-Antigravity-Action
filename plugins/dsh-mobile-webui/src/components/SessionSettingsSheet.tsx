@@ -158,6 +158,7 @@ export function SessionSettingsSheet({
     { id: 'gemini-3-flash', prov: 'antigravity', name: 'Gemini 3 Flash', desc: '下一代极速多模态推理模型' },
     { id: 'deepseek-v4-flash', prov: 'deepseek-official', name: 'DeepSeek-V4-Flash', desc: 'DeepSeek 官方推理大模型' },
     { id: 'claude-sonnet-4-6', prov: 'antigravity', name: 'Claude Sonnet 4.6', desc: 'Claude 代码与结构化能力模型' },
+    { id: 'claude-opus-4-6-thinking', prov: 'antigravity', name: 'Claude Opus 4.6 Thinking', desc: 'Claude 顶尖推理与超长程分析模型' },
   ];
 
   return (

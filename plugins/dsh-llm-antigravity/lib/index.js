@@ -635,7 +635,7 @@ function isGemini3Flash(model) {
 function inputModalitiesOf(modelId) {
   const lower = modelId.toLowerCase()
   if (lower.startsWith('gemini')) return ['text', 'image', 'video', 'audio', 'document']
-  if (lower.startsWith('claude')) return ['text', 'image', 'video']
+  if (lower.startsWith('claude') || lower === 'opus' || lower === 'sonnet') return ['text', 'image', 'video']
   return ['text']
 }
 
@@ -1074,15 +1074,17 @@ async function serializeMessages(messages, sessionId, model, attachments) {
             mediaParts.push({ inlineData: { mimeType: block.mimeType || 'application/octet-stream', data: block.data } })
           }
         }
+        const toolCallId = (typeof result.toolCallId === 'string' && result.toolCallId.length > 0)
+          ? result.toolCallId
+          : (typeof result.callId === 'string' && result.callId.length > 0 ? result.callId : (typeof result.id === 'string' && result.id.length > 0 ? result.id : undefined))
         const fr = {
-          name: callNames.get(result.toolCallId) ?? 'unknown',
+          name: (toolCallId ? callNames.get(toolCallId) : undefined) ?? result.toolName ?? 'unknown',
           response: { result: textContent || '(no output)' },
+          ...(toolCallId ? { id: toolCallId } : {}),
         }
         if (mediaParts.length > 0) {
-          // Match the official functionResponse media shape, which also carries
-          // the tool-call id: {"functionResponse":{"id":"call_...","name":...,
-          // "response":{...},"parts":[{"inlineData":{...}}]}}
-          fr.id = result.toolCallId ?? ''
+          // Match the official functionResponse media shape:
+          // {"functionResponse":{"id":"call_...","name":...,"response":{...},"parts":[{"inlineData":{...}}]}}
           fr.parts = mediaParts
         }
         parts.push({ functionResponse: fr })
@@ -1173,13 +1175,20 @@ const MODEL_ALIASES = {
   'gemini-3.1-pro-high': 'gemini-pro-agent',
   'gemini-3.1-pro': 'gemini-pro-agent',
   'gemini-3-pro': 'gemini-pro-agent',
+  'claude-opus': 'claude-opus-4-6-thinking',
   'claude-opus-4-6': 'claude-opus-4-6-thinking',
   'claude-opus-4-5': 'claude-opus-4-6-thinking',
   'claude-opus-4-5-thinking': 'claude-opus-4-6-thinking',
+  'claude-3-opus': 'claude-opus-4-6-thinking',
+  'claude-3-5-opus': 'claude-opus-4-6-thinking',
+  'opus': 'claude-opus-4-6-thinking',
+  'claude-sonnet': 'claude-sonnet-4-6',
   'claude-sonnet-4-5': 'claude-sonnet-4-6',
   'claude-3-5-sonnet': 'claude-sonnet-4-6',
   'claude-3-7-sonnet': 'claude-sonnet-4-6',
   'claude-haiku-4-5': 'claude-sonnet-4-6',
+  'claude-haiku': 'claude-sonnet-4-6',
+  'sonnet': 'claude-sonnet-4-6',
 }
 
 function resolveCanonicalModel(modelId) {
@@ -1188,7 +1197,7 @@ function resolveCanonicalModel(modelId) {
 
 function maxOutputTokensLimit(model) {
   const lower = model.toLowerCase()
-  if (lower.startsWith('claude-')) return 64000
+  if (lower.startsWith('claude') || lower === 'opus' || lower === 'sonnet') return 64000
   if (lower.startsWith('gpt-oss-')) return 16384
   if (lower.includes('flash-lite') || lower.includes('flash-image')) return 16384
   if (lower.includes('pro')) return 65535
