@@ -228,39 +228,49 @@ probe_dsh_health() {
   return 0
 }
 
+GUARDIAN_LOG="/tmp/dsh_guardian.log"
+
+log_guardian() {
+  local msg="$1"
+  local ts
+  ts=$(date "+%Y-%m-%d %H:%M:%S")
+  echo "[$ts] $msg" | tee -a "$GUARDIAN_LOG"
+}
+
 run_dsh() {
   local crash_log="/tmp/dsh_crash.log"
   local is_rollback_attempt=0
+  touch "$GUARDIAN_LOG"
 
   while true; do
     # 每次启动前先将当前工作区的插件和补丁部署到 Web Profile
     deploy_current_profile
 
-    echo "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
-    echo "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
+    log_guardian "正在启动 DSH Web 实例 (Port ${DSH_PORT})..."
+    log_guardian "Cloudflare Tunnel 与动态路由将由 dsh-cloudflare-tunnel 插件原生统一托管。"
     
     # 启动 dsh web 并捕获输出与进程 PID（使用进程替换确保 $! 获取的是真正的 dsh PID 而非 tee）
     dsh web --port "${DSH_PORT}" > >(tee "$crash_log") 2>&1 &
     local DSH_PID=$!
 
-    echo "⏳ [A/B 自愈守护] 正在执行深度健康判定 (进程存活 + HTTP 握手 + 异常日志扫描)..."
+    log_guardian "⏳ [A/B 自愈守护] 正在执行深度健康判定 (进程存活 + HTTP 握手 + 异常日志扫描)..."
     if probe_dsh_health "$DSH_PID" "$crash_log"; then
-      echo "✅ [A/B 自愈守护] DSH 实例深度健康检查通过！"
+      log_guardian "✅ [A/B 自愈守护] DSH 实例深度健康检查通过！"
 
       # 晋升门禁：仅在非回滚状态且工作区为已提交稳定代码时，才允许晋升 Slot A
       if [ "$is_rollback_attempt" -eq 0 ]; then
         if git diff --quiet && git diff --cached --quiet 2>/dev/null; then
-          echo "🚀 [A/B 自愈守护] 检测到已提交稳定代码且通过深度健康检查，安全晋升为 Slot A 稳定快照..."
+          log_guardian "🚀 [A/B 自愈守护] 检测到已提交稳定代码且通过深度健康检查，安全晋升为 Slot A 稳定快照..."
           snapshot_to_slot_a
         else
-          echo "ℹ️ [A/B 自愈守护] 当前工作区存在未提交修改 (Dirty Working Tree)，保留 Slot A 原始基准快照不予覆盖。"
+          log_guardian "ℹ️ [A/B 自愈守护] 当前工作区存在未提交修改 (Dirty Working Tree)，保留 Slot A 原始基准快照不予覆盖。"
         fi
       fi
 
       # 挂起等待主进程运行
       wait "$DSH_PID" || true
       local exit_code=$?
-      echo "⚠️ DSH 进程退出 (Exit Code: $exit_code)"
+      log_guardian "⚠️ DSH 进程退出 (Exit Code: $exit_code)"
       is_rollback_attempt=0
       continue
     else
@@ -271,20 +281,20 @@ run_dsh() {
       wait "$DSH_PID" 2>/dev/null || true
       local exit_code=$?
 
-      echo "🚨 [A/B 自愈守护] 警告：DSH 实例未通过健康检查！(Exit Code: $exit_code)"
-      echo "====== 异常日志截取 (最后 20 行) ======"
-      tail -n 20 "$crash_log" 2>/dev/null || true
-      echo "======================================="
+      log_guardian "🚨 [A/B 自愈守护] 警告：DSH 实例未通过健康检查！(Exit Code: $exit_code)"
+      log_guardian "====== 异常日志截取 (最后 20 行) ======"
+      tail -n 20 "$crash_log" 2>/dev/null | while read -r line; do log_guardian "  $line"; done
+      log_guardian "======================================="
 
       if [ "$is_rollback_attempt" -eq 0 ]; then
         is_rollback_attempt=1
-        echo "🔄 [A/B 自愈守护] 正在执行自动回滚：从 Slot A 恢复稳定配置..."
+        log_guardian "🔄 [A/B 自愈守护] 正在执行自动回滚：从 Slot A 恢复稳定配置..."
         rollback_from_slot_a
-        echo "🔄 [A/B 自愈守护] 正在以 Slot A 稳定配置重新拉起服务..."
+        log_guardian "🔄 [A/B 自愈守护] 正在以 Slot A 稳定配置重新拉起服务..."
         sleep 2
         continue
       else
-        echo "❌ [A/B 自愈守护] 致命错误：Slot A 稳定配置亦无法启动，请检查基础环境！"
+        log_guardian "❌ [A/B 自愈守护] 致命错误：Slot A 稳定配置亦无法启动，请检查基础环境！"
         exit 1
       fi
     fi
