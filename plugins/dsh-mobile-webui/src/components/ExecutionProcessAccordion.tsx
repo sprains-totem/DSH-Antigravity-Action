@@ -18,20 +18,22 @@ export function ExecutionProcessAccordion({
   status,
   isTurnGenerating,
   onToolClick,
-  defaultExpanded = false,
 }: {
   steps: StepRecord[];
   status: 'running' | 'completed' | 'error';
   isTurnGenerating?: boolean;
   onToolClick: (tool: ToolExecution) => void;
-  defaultExpanded?: boolean;
 }): VNode | null {
-  // 默认整体折叠
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const isRunning = isTurnGenerating || status === 'running';
+
+  // 用户显式手动切换状态（null 表示遵从默认策略：运行中展开，结束后折叠）
+  const [userOverride, setUserOverride] = useState<boolean | null>(null);
+
+  // 执行过程中默认展开显示，执行结束后默认折叠
+  const isExpanded = userOverride !== null ? userOverride : isRunning;
 
   const totalTools = steps.reduce((acc, s) => acc + s.toolCalls.length, 0);
   const hasReasoning = steps.some(s => Boolean(s.reasoning));
-  const isRunning = isTurnGenerating || status === 'running';
 
   // If there are no intermediate steps (no tools and no reasoning), don't render accordion
   if (totalTools === 0 && !hasReasoning) {
@@ -49,18 +51,23 @@ export function ExecutionProcessAccordion({
   }
   const durationStr = totalToolDuration > 0 ? `${totalToolDuration.toFixed(1)}s` : '';
 
+  const toggleExpand = (e: MouseEvent) => {
+    e.stopPropagation();
+    setUserOverride(!isExpanded);
+  };
+
   return (
     <div class={`process-accordion ${isExpanded ? 'expanded' : 'collapsed'}`}>
       <div
         class="process-accordion-header"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={toggleExpand}
         aria-expanded={isExpanded}
       >
         <div class="process-accordion-title">
           {isRunning ? (
             <div class="flex items-center gap-2" style="color: var(--accent-primary);">
               <LoaderIcon size={14} />
-              <span>正在执行中 (共 {steps.length} 步 · {totalTools} 个工具)...</span>
+              <span>正在执行中 (第 {steps.length} 步 · {totalTools} 个工具)...</span>
             </div>
           ) : status === 'error' ? (
             <div class="flex items-center gap-2" style="color: var(--danger);">

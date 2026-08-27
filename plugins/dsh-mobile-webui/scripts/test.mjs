@@ -171,15 +171,20 @@ async function runTest() {
     await pEval('document.querySelector(".sheet-backdrop")?.click()');
     await new Promise((r) => setTimeout(r, 300));
 
-    // Assertion 6: Check Accordion Default Collapsed Behavior
+    // Assertion 6: Check Accordion Smart Expansion Policy (Running = Expanded, Completed = Collapsed)
     const turnsCount = await pEval('document.querySelectorAll(".turn-container").length');
     const accordionCount = await pEval('document.querySelectorAll(".process-accordion").length');
     const collapsedCount = await pEval('document.querySelectorAll(".process-accordion.collapsed").length');
-    const visibleCardsBefore = await pEval('document.querySelectorAll(".trajectory-step-card").length');
-    console.log(`📊 [Assertion 6] Rendered Turns: ${turnsCount}, Accordions: ${accordionCount}, Collapsed By Default: ${collapsedCount}/${accordionCount}, Visible Tool Cards: ${visibleCardsBefore}`);
+    const expandedCount = await pEval('document.querySelectorAll(".process-accordion.expanded").length');
+    const isGeneratingNow = await pEval('Boolean(window.__DSH_STATE__.isGenerating)');
+    console.log(`📊 [Assertion 6] Rendered Turns: ${turnsCount}, Accordions: ${accordionCount} (Collapsed: ${collapsedCount}, Expanded: ${expandedCount}, isGenerating: ${isGeneratingNow})`);
 
-    if (accordionCount > 0 && collapsedCount !== accordionCount) {
-      throw new Error(`Expected all accordions to be collapsed by default, but found ${accordionCount - collapsedCount} expanded`);
+    // Verify completed turns are collapsed, and active running turn is expanded
+    if (isGeneratingNow && expandedCount === 0) {
+      throw new Error('Expected currently running turn accordion to be expanded during execution');
+    }
+    if (collapsedCount === 0 && accordionCount > 1) {
+      throw new Error('Expected finished historical turns to be collapsed by default');
     }
 
     // Assertion 7: Expand Accordion and Click Trajectory Card

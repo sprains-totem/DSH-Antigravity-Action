@@ -53,14 +53,13 @@ export function TrajectoryTimeline({
               />
             )}
 
-            {/* 2. Intermediate Execution Steps (Folded by Default!) */}
+            {/* 2. Intermediate Execution Steps (Expanded during execution, collapsed when done) */}
             {turn.steps.length > 0 && (
               <ExecutionProcessAccordion
                 steps={turn.steps}
                 status={turn.status}
                 isTurnGenerating={isLastTurn && isGenerating}
                 onToolClick={onToolClick}
-                defaultExpanded={false}
               />
             )}
 
