@@ -141,8 +141,11 @@ class ConnectionController(private val appContext: Context) {
             val hs = QwenHandshake()
             handshake = hs
             try {
+                // 官方 APP 前置：先发 node 会话初始化（appId/peerAddr），
+                // 再发 JSON 握手（每条消息都带官方帧头）
+                t.writeBytes(QwenFramer.nodeInitFrame())
                 hs.run(
-                    write = { txt -> t.write(txt) },
+                    write = { txt -> t.writeBytes(QwenFramer.wrapJson(txt)) },
                     onState = { _handshakeState.value = it }
                 )
                 _connectionState.value = ConnectionState.READY
@@ -359,6 +362,16 @@ class ConnectionController(private val appContext: Context) {
                 if (frame != null) {
                     onFrame(frame)
                     continue
+                }
+                // 官方 APP 帧头剥离：跳过前 10 字节帧头（[0..1] LE = 总长-2 仅校验合理性）
+                if (len - pos >= 10) {
+                    val declared = (data[pos] or (data[pos + 1] shl 8)) + 2
+                    if (declared >= 10 && declared <= 64 * 1024) {
+                        // 保留载荷（跳过 10B 头），交由下方 takeLine 解析 JSON
+                        pos += 10
+                        compact()
+                        continue
+                    }
                 }
                 val line = takeLine()
                 if (line != null) {

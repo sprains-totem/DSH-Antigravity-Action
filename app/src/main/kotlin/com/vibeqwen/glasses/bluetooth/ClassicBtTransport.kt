@@ -97,9 +97,14 @@ class ClassicBtTransport(
 
     /** 下发一行 JSON 文本（控制通道） */
     fun write(text: String) {
+        writeBytes(text.toByteArray(StandardCharsets.UTF_8))
+    }
+
+    /** 下发原始字节（控制通道）——支持官方私有帧封装 */
+    fun writeBytes(bytes: ByteArray) {
         val out: OutputStream? = controlSocket?.outputStream
         if (out == null) throw IOException("control socket 未连接")
-        out.write(text.toByteArray(StandardCharsets.UTF_8))
+        out.write(bytes)
         out.flush()
     }
 
