@@ -1,7 +1,7 @@
 package com.vibeqwen.glasses.ui.recordings
 
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewmodel.viewModelScope
+import androidx.lifecycle.viewModelScope
 import com.vibeqwen.glasses.ConnectionController
 import com.vibeqwen.glasses.GlassesApp
 import com.vibeqwen.glasses.model.RecordingItem
