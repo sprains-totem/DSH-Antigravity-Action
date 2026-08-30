@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -132,26 +133,18 @@ fun ConnectScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("清空日志") }
 
-            // 方案三：读取官方APP的BLE密钥（需要 Shizuku）
+            // 方案三：读取官方APP的BLE密钥（root 或 Shizuku）
             OutlinedButton(
                 onClick = {
                     scope.launch {
-                        val reader = com.vibeqwen.glasses.util.ShizukuKeyReader
-                        if (!reader.isShizukuAvailable()) {
-                            snackbar.showSnackbar("Shizuku 不可用：请先安装并启动 Shizuku (moe.shizuku.privileged.api)")
-                        } else if (!reader.isGranted()) {
-                            snackbar.showSnackbar("请在弹出的 Shizuku 授权对话框授予权限后重试")
-                            rfShowKeyResult = "Shizuku 已连接但未授权。请在系统弹出的授权框中允许。"
-                        } else {
-                            LogCollector.log("UI", "开始读取官方密钥")
-                            val result = reader.readOfficialBleKey()
-                            rfShowKeyResult = result
-                            LogCollector.log("UI", "读取结果: ${result.take(200)}")
-                        }
+                        LogCollector.log("UI", "开始读取官方密钥")
+                        val result = com.vibeqwen.glasses.util.ShizukuKeyReader.readOfficialBleKey()
+                        rfShowKeyResult = result
+                        LogCollector.log("UI", "读取结果: ${result.take(200)}")
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("读取官方密钥 (Shizuku)") }
+            ) { Text("读取官方密钥 (root/Shizuku)") }
         }
         // 密钥读取结果弹窗
         if (rfShowKeyResult != null) {
