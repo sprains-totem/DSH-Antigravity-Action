@@ -25,20 +25,28 @@ import java.util.concurrent.atomic.AtomicLong
  */
 enum class HandshakeState {
     IDLE,
-    DEVICE_QUERY,     // 发 device/[]、calendarSync、messageId
+    DEVICE_QUERY,      // 发 device/[]、calendarSync、messageId
     WAIT_GLASSES_INFO, // 等眼镜 active_data/pairAdv/type:10001
-    AUTH_SESSION,     // type:10001 镜像、sessionId、support
-    SN_AUTH,          // type:1103 SN 认证
-    WAIT_ATTACH,      // 等 attach_success
-    READY,            // 可录音
+    AUTH_SESSION,      // type:10001 镜像、sessionId、support
+    SN_AUTH,           // type:1103 SN 认证
+    WAIT_ATTACH,       // 等 attach_success
+    READY,             // 可录音
     FAILED
 }
 
 class HandshakeException(message: String) : Exception(message)
 
-object QwenHandshake {
-
-    /** 当前状态（供 UI 展示） */
+/**
+ * 握手状态机实例。每个连接创建一个实例，避免跨连接状态串扰。
+ */
+class QwenHandshake(
+    /** 宽容模式：超时未收到 attach_success 仍置 READY（默认 true，给固件差异留余地） */
+    private val tolerateAttachTimeout: Boolean = true,
+    /** 等待眼镜信息上报超时（ms） */
+    private val infoTimeoutMs: Long = 3000L,
+    /** 等待 attach_success 超时（ms） */
+    private val attachTimeoutMs: Long = 3000L,
+) {
     @Volatile
     var state: HandshakeState = HandshakeState.IDLE
         private set
@@ -47,26 +55,10 @@ object QwenHandshake {
     private val sessionCounter = AtomicLong(4196571L)
 
     /** 每步发送间隔（ms），贴合真机节奏 */
-    private const val STEP_DELAY_MS = 90L
-
-    /** 等待眼镜信息上报超时（ms） */
-    private const val INFO_TIMEOUT_MS = 3000L
-
-    /** 等待 attach_success 超时（ms） */
-    private const val ATTACH_TIMEOUT_MS = 3000L
-
-    /** 宽容模式：超时未收到 attach_success 仍置 READY（默认开，给固件差异留余地） */
-    @Volatile
-    var tolerateAttachTimeout: Boolean = true
+    private val stepDelayMs: Long = 90L
 
     private var infoGate: CompletableDeferred<Unit>? = null
     private var attachGate: CompletableDeferred<Unit>? = null
-
-    fun reset() {
-        state = HandshakeState.IDLE
-        infoGate = null
-        attachGate = null
-    }
 
     private fun setState(s: HandshakeState) {
         state = s
@@ -86,11 +78,11 @@ object QwenHandshake {
         onState(state)
         val empty = JSONArray()
         write(JSONObject().put("device", empty).toString())                    // {"device":[]}
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(JSONObject().put("device", empty).toString())                    // {"device":[]}
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(JSONObject().toString())                                         // {}
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(
             JSONObject().put(
                 "device",
@@ -104,7 +96,7 @@ object QwenHandshake {
                 )
             ).toString()
         )
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(
             JSONObject()
                 .put("messageId", System.currentTimeMillis().toString())
@@ -117,22 +109,22 @@ object QwenHandshake {
         setState(HandshakeState.WAIT_GLASSES_INFO)
         onState(state)
         infoGate = CompletableDeferred()
-        withTimeoutOrNull(INFO_TIMEOUT_MS) { infoGate?.await() }
+        withTimeoutOrNull(infoTimeoutMs) { infoGate?.await() }
 
         // 阶段 3：认证会话（抓包 4911~4914ms）
         setState(HandshakeState.AUTH_SESSION)
         onState(state)
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(JSONObject().put("type", 10001).put("arg1", 1).put("arg2", 1).toString())
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(JSONObject().put("sessionId", sessionCounter.incrementAndGet()).toString())
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(JSONObject().put("support", true).toString())
 
         // 阶段 4：SN 认证（抓包 6457ms）
         setState(HandshakeState.SN_AUTH)
         onState(state)
-        delay(STEP_DELAY_MS)
+        delay(stepDelayMs)
         write(
             JSONObject()
                 .put("type", 1103)
@@ -147,7 +139,7 @@ object QwenHandshake {
         onState(state)
         attachGate = CompletableDeferred()
         val attached =
-            withTimeoutOrNull(ATTACH_TIMEOUT_MS) { attachGate?.await() } != null
+            withTimeoutOrNull(attachTimeoutMs) { attachGate?.await() } != null
 
         if (attached || tolerateAttachTimeout) {
             setState(HandshakeState.READY)

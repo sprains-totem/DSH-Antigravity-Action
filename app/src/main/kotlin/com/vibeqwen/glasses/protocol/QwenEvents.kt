@@ -87,9 +87,9 @@ object QwenEvents {
             && obj.has("status")
         ) {
             return QwenEvent.TaskState(
-                status = obj.optString("status", null),
-                reason = obj.optString("reason", null),
-                reasonStop = obj.optString("reasonStop", null)
+                status = obj.takeIf { it.has("status") }?.optString("status"),
+                reason = obj.takeIf { it.has("reason") }?.optString("reason"),
+                reasonStop = obj.takeIf { it.has("reasonStop") }?.optString("reasonStop")
             )
         }
 
@@ -104,15 +104,15 @@ object QwenEvents {
         //    active_data / odm：会话令牌上报
         if (obj.has("active_data")) {
             return QwenEvent.ActiveData(
-                activeData = obj.optString("active_data", null),
-                odm = obj.optString("odm", null)
+                activeData = obj.optString("active_data"),
+                odm = obj.takeIf { it.has("odm") }?.optString("odm")
             )
         }
         //    pairAdv / pid / peerAddr：连接参数上报
         if (obj.has("pairAdv") || obj.has("pid")) {
             return QwenEvent.PairInfo(
                 pid = obj.optInt("pid", -1).takeIf { it >= 0 },
-                peerAddr = obj.optString("peerAddr", null)
+                peerAddr = obj.takeIf { it.has("peerAddr") }?.optString("peerAddr")
             )
         }
         //    type:10001：连接状态通知（注意与请求同构，arg1/arg2 一致）
@@ -126,7 +126,7 @@ object QwenEvents {
         if (obj.optString("msg", "").contains("attach_success") || obj.has("attach_success")) {
             return QwenEvent.AttachSuccess(
                 code = obj.optInt("code", -1).takeIf { it >= 0 },
-                msg = obj.optString("msg", null)
+                msg = obj.optString("msg")
             )
         }
 

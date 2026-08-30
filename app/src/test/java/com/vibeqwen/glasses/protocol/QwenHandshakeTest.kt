@@ -2,7 +2,6 @@ package com.vibeqwen.glasses.protocol
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -10,20 +9,19 @@ import org.junit.Test
 
 /**
  * 握手状态机单元测试：验证回包驱动（门闩推进）逻辑正确。
- * 关键：用协程 delay 轮询（不能 Thread.sleep，否则阻塞 runBlocking 调度器，
- * async 握手协程无法推进，门闩永不解除）。喂包要等对应 gate 已创建。
+ * 每个测试创建独立实例（class），用协程 delay 轮询等待状态推进。
  */
 class QwenHandshakeTest {
 
     @Test
     fun `握手在收到眼镜回包后进入 READY`() = runBlocking {
-        QwenHandshake.reset()
+        val hs = QwenHandshake() // 独立实例
         val sent = mutableListOf<String>()
         val states = mutableListOf<HandshakeState>()
 
         val job = async {
             runCatching {
-                QwenHandshake.run(
+                hs.run(
                     write = { sent.add(it) },
                     onState = { states.add(it) }
                 )
@@ -31,20 +29,20 @@ class QwenHandshakeTest {
         }
 
         // 等 run() 进入 WAIT_GLASSES_INFO（infoGate 已创建）
-        awaitState(HandshakeState.WAIT_GLASSES_INFO)
+        awaitState(hs, HandshakeState.WAIT_GLASSES_INFO)
 
         // 眼镜回包序列
-        QwenHandshake.onIncoming("""{"active_data":"656D4B74446A","odm":"AILABS_SG02_QW"}""")
-        QwenHandshake.onIncoming("""{"pairAdv":false,"pid":8665,"peerAddr":"22:c1:37:10:6e:b4"}""")
-        QwenHandshake.onIncoming("""{"type":10001,"arg1":1,"arg2":1}""")
+        hs.onIncoming("""{"active_data":"656D4B74446A","odm":"AILABS_SG02_QW"}""")
+        hs.onIncoming("""{"pairAdv":false,"pid":8665,"peerAddr":"22:c1:37:10:6e:b4"}""")
+        hs.onIncoming("""{"type":10001,"arg1":1,"arg2":1}""")
 
         // 等进入 WAIT_ATTACH（attachGate 已创建）再喂 attach_success
-        awaitState(HandshakeState.WAIT_ATTACH)
-        QwenHandshake.onIncoming("""{"code":1,"msg":"attach_success"}""")
+        awaitState(hs, HandshakeState.WAIT_ATTACH)
+        hs.onIncoming("""{"code":1,"msg":"attach_success"}""")
 
         val result = kotlinx.coroutines.withTimeoutOrNull(5000) { job.await(); "done" }
         assertEquals("done", result)
-        assertEquals(HandshakeState.READY, QwenHandshake.state)
+        assertEquals(HandshakeState.READY, hs.state)
         assertTrue(states.contains(HandshakeState.WAIT_GLASSES_INFO))
         assertTrue(states.contains(HandshakeState.WAIT_ATTACH))
         assertTrue(states.contains(HandshakeState.READY))
@@ -58,27 +56,27 @@ class QwenHandshakeTest {
 
     @Test
     fun `仅喂 active_data 也能推进到后续阶段`() = runBlocking {
-        QwenHandshake.reset()
+        val hs = QwenHandshake()
         val sent = mutableListOf<String>()
 
         val job = async {
             runCatching {
-                QwenHandshake.run(
+                hs.run(
                     write = { sent.add(it) },
                     onState = {}
                 )
             }
         }
 
-        awaitState(HandshakeState.WAIT_GLASSES_INFO)
-        QwenHandshake.onIncoming("""{"active_data":"AAA","odm":"AILABS_SG02_QW"}""")
+        awaitState(hs, HandshakeState.WAIT_GLASSES_INFO)
+        hs.onIncoming("""{"active_data":"AAA","odm":"AILABS_SG02_QW"}""")
 
-        awaitState(HandshakeState.WAIT_ATTACH)
-        QwenHandshake.onIncoming("""{"code":1,"msg":"attach_success"}""")
+        awaitState(hs, HandshakeState.WAIT_ATTACH)
+        hs.onIncoming("""{"code":1,"msg":"attach_success"}""")
 
         val result = kotlinx.coroutines.withTimeoutOrNull(5000) { job.await(); "done" }
         assertEquals("done", result)
-        assertEquals(HandshakeState.READY, QwenHandshake.state)
+        assertEquals(HandshakeState.READY, hs.state)
     }
 
     @Test
@@ -103,13 +101,13 @@ class QwenHandshakeTest {
     }
 
     /** 用协程 delay 轮询等待握手进入目标状态（最多 3 秒） */
-    private suspend fun awaitState(target: HandshakeState) {
+    private suspend fun awaitState(hs: QwenHandshake, target: HandshakeState) {
         val deadline = System.currentTimeMillis() + 3000
-        while (QwenHandshake.state != target && System.currentTimeMillis() < deadline) {
+        while (hs.state != target && System.currentTimeMillis() < deadline) {
             delay(10)
         }
-        if (QwenHandshake.state != target) {
-            throw AssertionError("握手未进入 $target，当前=${QwenHandshake.state}")
+        if (hs.state != target) {
+            throw AssertionError("握手未进入 $target，当前=${hs.state}")
         }
     }
 }

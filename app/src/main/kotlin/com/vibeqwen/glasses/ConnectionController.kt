@@ -96,6 +96,7 @@ class ConnectionController(private val appContext: Context) {
     }
 
     private var transport: ClassicBtTransport? = null
+    private var handshake: QwenHandshake? = null
     private var pipeline: AudioPipeline? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val incoming = Channel<ByteArray>(Channel.UNLIMITED)
@@ -137,8 +138,10 @@ class ConnectionController(private val appContext: Context) {
             t.startReading { bytes -> incoming.trySend(bytes) }
 
             _connectionState.value = ConnectionState.HANDSHAKING
+            val hs = QwenHandshake()
+            handshake = hs
             try {
-                QwenHandshake.run(
+                hs.run(
                     write = { txt -> t.write(txt) },
                     onState = { _handshakeState.value = it }
                 )
@@ -170,7 +173,7 @@ class ConnectionController(private val appContext: Context) {
             transport = null
             pipeline?.let { runCatching { it.stop() } }
             pipeline = null
-            QwenHandshake.reset()
+            handshake = null
             _handshakeState.value = HandshakeState.IDLE
             _connectionState.value = ConnectionState.DISCONNECTED
             _deviceName.value = null
@@ -244,7 +247,7 @@ class ConnectionController(private val appContext: Context) {
     }
 
     private fun handleJson(json: String) {
-        QwenHandshake.onIncoming(json)
+        handshake?.onIncoming(json)
         val ev = QwenEvents.parse(json) ?: return
         when (ev) {
             is QwenEvent.RecordStart -> {
