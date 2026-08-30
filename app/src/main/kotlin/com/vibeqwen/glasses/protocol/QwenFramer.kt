@@ -28,12 +28,18 @@ object QwenFramer {
     /** 会话 node 初始化载荷（硬编码官方 APP 格式，peerAddr 为手机侧地址） */
     fun buildNodeInit(peerAddrHex: String = "22:c1:37:10:6e:b4"): ByteArray {
         val baos = ByteArrayOutputStream()
-        // 0xbf 节点标记 + 字段序列（自描述：名字 + 类型字符 + 值）
         baos.write(0xbf)
-        baos.write("haddrType\x00eappId".toByteArray(Charsets.ISO_8859_1))
+        baos.write("haddrType".toByteArray(Charsets.ISO_8859_1))
+        baos.write(0x00)
+        baos.write("eappId".toByteArray(Charsets.ISO_8859_1))
         baos.write("ocom.alibaba.wowbosgAndroidhpeerAddrq".toByteArray(Charsets.ISO_8859_1))
         baos.write(peerAddrHex.toByteArray(Charsets.ISO_8859_1))
-        baos.write("dtime\u001B\u0000\u0001\u00A0R\u00A4\u0081\u0080jtimeOffset\u001A\u0001\u00B7t\u0000jtimeZoneIdmAsia/Shanghaigversion\u0001\u00FF".toByteArray(Charsets.ISO_8859_1))
+        baos.write("dtime".toByteArray(Charsets.ISO_8859_1))
+        baos.write(byteArrayOf(0x1B, 0x00, 0x00, 0x01, 0xA0.toByte(), 0x52, 0xA4.toByte(), 0x81.toByte(), 0x80.toByte()))
+        baos.write("jtimeOffset".toByteArray(Charsets.ISO_8859_1))
+        baos.write(byteArrayOf(0x1A, 0x01, 0xB7.toByte(), 0x74, 0x00))
+        baos.write("jtimeZoneIdmAsia/Shanghaigversion".toByteArray(Charsets.ISO_8859_1))
+        baos.write(byteArrayOf(0x01, 0xFF.toByte()))
         return baos.toByteArray()
     }
 

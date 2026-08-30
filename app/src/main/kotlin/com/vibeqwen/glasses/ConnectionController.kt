@@ -15,6 +15,7 @@ import com.vibeqwen.glasses.protocol.QwenCommands
 import com.vibeqwen.glasses.protocol.QwenConstants
 import com.vibeqwen.glasses.protocol.QwenEvents
 import com.vibeqwen.glasses.protocol.QwenFrameParser
+import com.vibeqwen.glasses.protocol.QwenFramer
 import com.vibeqwen.glasses.protocol.QwenHandshake
 import com.vibeqwen.glasses.protocol.QwenEvent
 import com.vibeqwen.glasses.protocol.HandshakeState
@@ -365,7 +366,7 @@ class ConnectionController(private val appContext: Context) {
                 }
                 // 官方 APP 帧头剥离：跳过前 10 字节帧头（[0..1] LE = 总长-2 仅校验合理性）
                 if (len - pos >= 10) {
-                    val declared = (data[pos] or (data[pos + 1] shl 8)) + 2
+                    val declared = ((data[pos].toInt() and 0xFF) or ((data[pos + 1].toInt() and 0xFF) shl 8)) + 2
                     if (declared >= 10 && declared <= 64 * 1024) {
                         // 保留载荷（跳过 10B 头），交由下方 takeLine 解析 JSON
                         pos += 10
