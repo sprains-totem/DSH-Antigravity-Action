@@ -4,4 +4,12 @@
     <external-files-path
         name="recordings"
         path="Music/vibeQwenGlasses" />
+    <!-- 日志导出目录 getExternalFilesDir(null)/logs -->
+    <external-files-path
+        name="logs"
+        path="logs" />
+    <!-- 兜底根目录（覆盖其它子目录导出） -->
+    <external-files-path
+        name="root"
+        path="." />
 </paths>

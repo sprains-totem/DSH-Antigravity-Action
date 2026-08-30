@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -17,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -24,9 +26,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.FileProvider
 import com.vibeqwen.glasses.ConnectionState
 import com.vibeqwen.glasses.bluetooth.PairedDevice
 import com.vibeqwen.glasses.protocol.HandshakeState
+import com.vibeqwen.glasses.util.LogCollector
+import kotlinx.coroutines.launch
+import android.content.Intent
 
 @Composable
 fun ConnectScreen(
@@ -35,6 +41,7 @@ fun ConnectScreen(
 ) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     val handState by vm.handshakeState.collectAsStateWithLifecycle()
@@ -78,6 +85,44 @@ fun ConnectScreen(
                     contentColor = MaterialTheme.colorScheme.onErrorContainer
                 )
             ) { Text("断开连接") }
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp)
+        ) {
+            Text("调试", style = MaterialTheme.typography.titleSmall)
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        LogCollector.log("UI", "用户点击导出日志")
+                        val file = LogCollector.export(context)
+                        if (file != null) {
+                            LogCollector.log("UI", "日志已导出: ${file.absolutePath}")
+                            // 分享日志文件
+                            try {
+                                val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "分享日志"))
+                            } catch (e: Exception) {
+                                snackbar.showSnackbar("导出成功：${file.absolutePath}")
+                            }
+                        } else {
+                            snackbar.showSnackbar("导出日志失败")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("导出日志 (${LogCollector.size} 条)") }
+            OutlinedButton(
+                onClick = { LogCollector.clear(); snackbar.showSnackbar("日志已清空") },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("清空日志") }
         }
 
         androidx.compose.foundation.layout.Spacer(Modifier.padding(8.dp))

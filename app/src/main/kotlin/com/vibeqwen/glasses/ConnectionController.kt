@@ -20,6 +20,7 @@ import com.vibeqwen.glasses.protocol.QwenHandshake
 import com.vibeqwen.glasses.protocol.QwenEvent
 import com.vibeqwen.glasses.protocol.HandshakeState
 import com.vibeqwen.glasses.service.GlassesConnectionService
+import com.vibeqwen.glasses.util.LogCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -126,15 +127,18 @@ class ConnectionController(private val appContext: Context) {
         scope.launch {
             _lastError.value = null
             _connectionState.value = ConnectionState.CONNECTING
+            LogCollector.c("开始连接 ${device.name} (${device.address})")
             val t = ClassicBtTransport(device, QwenConstants.SPP_UUID, QwenConstants.AUDIO_SPP_UUID)
             if (!t.connect()) {
                 _connectionState.value = ConnectionState.FAILED
                 _lastError.value = "无法连接眼镜（RFCOMM 握手失败，请确认已配对且官方 APP 未占用）"
+                LogCollector.e("连接失败: RFCOMM 未建立")
                 return@launch
             }
             transport = t
             _deviceName.value = device.name
             _connectionState.value = ConnectionState.CONNECTED
+            LogCollector.c("RFCOMM/L2CAP 已连接，进入握手")
             QwenFrameParser.resetSequence()
             t.startReading { bytes -> incoming.trySend(bytes) }
 
@@ -144,16 +148,24 @@ class ConnectionController(private val appContext: Context) {
             try {
                 // 官方 APP 前置：先发 node 会话初始化（appId/peerAddr），
                 // 再发 JSON 握手（每条消息都带官方帧头）
-                t.writeBytes(QwenFramer.nodeInitFrame())
+                LogCollector.h("发送 node 初始化...")
+                val node = QwenFramer.nodeInitFrame()
+                LogCollector.h("nodeInitFrame: ${node.size} 字节: ${node.toHex().take(64)}")
+                t.writeBytes(node)
                 hs.run(
-                    write = { txt -> t.writeBytes(QwenFramer.wrapJson(txt)) },
-                    onState = { _handshakeState.value = it }
+                    write = { txt ->
+                        LogCollector.h("←发送(帧封装): ${txt.take(120)}")
+                        t.writeBytes(QwenFramer.wrapJson(txt))
+                    },
+                    onState = { st -> _handshakeState.value = st; LogCollector.h("握手状态: $st") }
                 )
                 _connectionState.value = ConnectionState.READY
+                LogCollector.c("握手完成 → READY")
                 _toast.tryEmit("连接就绪，可以开始录音")
             } catch (e: Exception) {
                 _connectionState.value = ConnectionState.FAILED
                 _lastError.value = "握手失败：${e.message}"
+                LogCollector.e("握手失败: ${e.message}")
             }
         }
     }
@@ -252,9 +264,11 @@ class ConnectionController(private val appContext: Context) {
 
     private fun handleJson(json: String) {
         handshake?.onIncoming(json)
+        LogCollector.p("收到JSON: ${json.take(120)}")
         val ev = QwenEvents.parse(json) ?: return
         when (ev) {
             is QwenEvent.RecordStart -> {
+                LogCollector.r("眼镜事件: record_start")
                 // 眼镜侧已开始推流；若本端还未进入 RECORDING（眼镜发起场景），也标记录音中
                 if (_recordingState.value == RecordingState.IDLE) {
                     pipeline = AudioPipeline(recordingsDir)
