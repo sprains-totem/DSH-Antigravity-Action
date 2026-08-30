@@ -364,11 +364,14 @@ class ConnectionController(private val appContext: Context) {
                     onFrame(frame)
                     continue
                 }
-                // 官方 APP 帧头剥离：跳过前 10 字节帧头（[0..1] LE = 总长-2 仅校验合理性）
+                // 官方 APP 帧头剥离：跳过前 10 字节帧头
+                // 校验：[0..1] LE=总长-2；[2..3] LE=0x0001/0x0002/0x0004（避免误判音频帧）
                 if (len - pos >= 10) {
                     val declared = ((data[pos].toInt() and 0xFF) or ((data[pos + 1].toInt() and 0xFF) shl 8)) + 2
-                    if (declared >= 10 && declared <= 64 * 1024) {
-                        // 保留载荷（跳过 10B 头），交由下方 takeLine 解析 JSON
+                    val typeField = ((data[pos + 2].toInt() and 0xFF) or ((data[pos + 3].toInt() and 0xFF) shl 8))
+                    if (declared >= 12 && declared <= 64 * 1024 &&
+                        (typeField == 0x0001 || typeField == 0x0002 || typeField == 0x0004)
+                    ) {
                         pos += 10
                         compact()
                         continue
