@@ -5,9 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# 仅需读取代码并上传产物（actions: write 供 upload-artifact 使用）
+# 需要写权限以创建 Release 并上传资产
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -66,3 +66,22 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release (APK)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-${{ github.run_number }}
+          name: vibeQwenGlasses v1.0.0-${{ github.run_number }}
+          body: |
+            ## vibeQwenGlasses — 千问 G1 眼镜录音 APP
+
+            - **app-release.apk**：release 构建（可安装）
+            - **app-debug.apk**：debug 构建（可安装）
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
