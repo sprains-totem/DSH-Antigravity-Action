@@ -254,7 +254,41 @@ AT+BIEV=2,69
 
 ---
 
-## 8. 待确认事项（开发前置）
+## 8. 设备地址与 SDP 服务发现分析
+
+> 补充发现（2026-08-30 第二轮 bugreport 分析）
+
+### 8.1 设备 MAC 地址（重要修正）
+
+| 地址 | 身份 | 证据 |
+|------|------|------|
+| `B4:6E:10:37:C1:22` | **vivo 手机自身**的蓝牙地址 | dump 文本 `[persist.vendor.service.bdroid.bdaddr]: [b4:6e:10:37:c1:22]`，`SETTINGS_SECURE bluetooth_address` |
+| `A0:FB:C5:21:9B:20` | **眼镜**的蓝牙 MAC | HCI 日志中 `BTGlass.RssiWarning` 事件的 `RemoteMAC` 字段 |
+
+> ⚠️ 注意：之前误以为 `B4:6E:10:37:C1:22` 是眼镜 MAC（它出现在 `hfpVoiceLauncher` 配置值里），实际它是**手机自己的地址**。握手时眼镜上报的 `peerAddr: 22:c1:37:10:6e:b4` 才是眼镜侧视角下的手机地址（字节反转）。**眼镜真实 MAC 为 `A0:FB:C5:21:9B:20`**。
+
+### 8.2 SDP 服务发现（CID 0x0001）
+
+从 HCI 日志提取了 SDP 通道（L2CAP CID 0x0001）的 130 个包。SDP 流程为标准的 `ServiceSearchRequest` → `ServiceAttributeRequest` 序列，属性响应中出现的 16-bit UUID 片段：
+
+```
+SDP pkt 30:   ... 01 02 9b 06        → UUID 0x069B?
+SDP pkt 101:  ... 01 02 f0 03 04 09 03 0a 14 00 00 00 00 f2 03
+SDP pkt 109:  ... 01 02 fd 03 04 09 03 05 03 d0 07 e0 2e 96 02
+SDP pkt 110:  ... 04 09 03 05 03 d0 07 e0 2e 96 02
+```
+
+**初步判定**：SDP 中包含标准服务 UUID 及厂商自定义 UUID（`0xF003`/`0x03FD` 等为厂商私有段）。完整 UUID 列表需对 SDP 属性响应做完整解析（Data Element 解包），建议实现 M1 时用 `tools/` 中的脚本或 Wireshark 对 `reference/hci_logs/` 下日志做 SDP 过滤确认。
+
+### 8.3 待办（连接参数确认）
+
+- 从 `bt_hci_20260830_110332_d.cfa`（连接建立早期）提取 SDP ServiceSearch 请求的服务类 UUID 列表
+- 确认眼镜暴露的 RFCOMM 服务 UUID（SPP `0x1101`？厂商自定义？）
+- 该 UUID 即 `BluetoothDevice.createRfcommSocketToServiceRecord(uuid)` 所需参数
+
+---
+
+## 9. 待确认事项（开发前置）
 
 | # | 事项 | 说明 |
 |---|------|------|
