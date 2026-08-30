@@ -1,7 +1,6 @@
 package com.vibeqwen.glasses.util
 
 import android.content.pm.PackageManager
-import android.os.ParcelFileDescriptor
 import rikka.shizuku.Shizuku
 
 /**
@@ -38,8 +37,9 @@ object ShizukuKeyReader {
      */
     fun requestPermission(): Boolean {
         if (!isShizukuAvailable() || isGranted()) return false
-        // 一次性 listener：注册后主动请求；回调里自移除
-        val listener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+        // Kotlin 闭包无法引用未初始化的 val：用 lateinit var 占位
+        lateinit var listener: Shizuku.OnRequestPermissionResultListener
+        listener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
             try {
                 Shizuku.removeRequestPermissionResultListener(listener)
             } catch (_: Exception) {
@@ -58,22 +58,19 @@ object ShizukuKeyReader {
         }
     }
 
-    /**
-     * 用 Shizuku 的 shell 权限执行命令（newProcess 三参版，公开 API）。
-     * @return stdout（null=失败）
-     */
+    /** 用 Shizuku 的 shell 权限执行命令 */
     fun shShizuku(command: String): String? {
         if (!isShizukuAvailable() || !isGranted()) return null
-        return try {
-            val pfd: ParcelFileDescriptor =
+        try {
+            // Shizuku.newProcess 返回 ShizukuRemoteProcess（持有 inputStream / errorStream）
+            val proc: rikka.shizuku.Shizuku.ShizukuRemoteProcess? =
                 Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-            val input = ParcelFileDescriptor.AutoCloseInputStream(pfd)
-            val text = input.bufferedReader().readText()
-            input.close()
-            pfd.close()
-            text.trim()
+            if (proc == null) return null
+            val text = proc.inputStream.bufferedReader().readText().trim()
+            proc.awaitFor()
+            return text
         } catch (e: Exception) {
-            null
+            return null
         }
     }
 
