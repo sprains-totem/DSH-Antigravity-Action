@@ -12,10 +12,6 @@
 | `docs/ARCHITECTURE.md` | Android 原生版架构设计 | 分层结构、模块设计、里程碑 |
 | `docs/PROTOCOL.md` | 逆向协议规格（核心！） | 握手、指令、398B 音频帧格式 |
 | `docs/combo_test_report.md` | 4 种发起/结束组合测试报告 | 录音控制指令与窗口验证 |
-| `reference/hci_logs/*.cfa` | 原始 HCI 蓝牙抓包日志 | 自行分析协议细节 |
-| `reference/official_reference_16000hz_mono.wav` | 官方 APP 导出参考录音 | 验证输出正确性 |
-| `reference/combo_*.wav` | 4 段组合测试还原音频 | 对照样本（6-7s×4 组合） |
-| `reference/combo_test_instructions.json` | 录音指令/事件完整记录 | 触发方式分析 |
 | `tools/analyze_recording.js` | HCI 日志分析脚本 | 逐秒流量/CID/JSON 提取 |
 | `tools/extract_audio.js` | 音频帧提取脚本 | 398B 帧 → PCM → WAV |
 | `tools/extract_combo_audio.js` | 组合测试提取脚本 | 多段录音切分还原 |
@@ -51,12 +47,10 @@ vibeARS 仓库（`com.vibears.app.audio` 包）移植，仅替换输入点：
 
 ## 🚀 开发起点（M1）
 
-1. **连接参数**：确认 SPP 服务 UUID（从 `reference/hci_logs/bt_hci_20260830_110332_d.cfa` 的 SDP 段提取，见 PROTOCOL.md §8）
 2. **Android 工程**：Kotlin + Compose，minSdk 26，compileSdk 34
 3. **传输层**：`BluetoothDevice.createRfcommSocketToServiceRecord(uuid)` + 读取循环
 4. **协议层**：握手状态机（PROTOCOL.md §3）→ READY
 5. **录音**：发 3 条 JSON → 收音频帧 → 解析 PCM → 写 WAV
-6. **验证**：与 `reference/official_reference_16000hz_mono.wav` 对比
 
 ---
 

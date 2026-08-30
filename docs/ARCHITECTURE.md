@@ -207,7 +207,6 @@ vibeQwenGlasses/
 ├── tools/
 │   ├── analyze_recording.js                  # HCI 日志分析脚本（保留）
 │   └── extract_audio.js                      # 音频帧提取/验证脚本（保留）
-└── reference/
     └── 11_05 .wav                            # 官方 APP 导出参考录音（对照样本）
 ```
 

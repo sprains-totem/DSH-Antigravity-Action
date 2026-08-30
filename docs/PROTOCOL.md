@@ -278,7 +278,6 @@ SDP pkt 109:  ... 01 02 fd 03 04 09 03 05 03 d0 07 e0 2e 96 02
 SDP pkt 110:  ... 04 09 03 05 03 d0 07 e0 2e 96 02
 ```
 
-**初步判定**：SDP 中包含标准服务 UUID 及厂商自定义 UUID（`0xF003`/`0x03FD` 等为厂商私有段）。完整 UUID 列表需对 SDP 属性响应做完整解析（Data Element 解包），建议实现 M1 时用 `tools/` 中的脚本或 Wireshark 对 `reference/hci_logs/` 下日志做 SDP 过滤确认。
 
 ### 8.3 待办（连接参数确认）
 

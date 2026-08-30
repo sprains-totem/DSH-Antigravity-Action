@@ -23,7 +23,7 @@
 - [协议规格](docs/PROTOCOL.md) — 逆向成果完整存档（握手 / 指令 / 帧格式 / SDP 分析）
 - [组合测试报告](docs/combo_test_report.md) — 4 种发起/结束组合的录音还原验证
 - [tools/](tools/) — HCI 日志分析脚本（Node.js）
-- [reference/](reference/) — 原始抓包日志、官方参考录音、还原对照样本
+- 协议 / 架构 / 测试报告完整存档（原始抓包与录音样本仅本地保留，不入库）
 
 ## 逆向进展
 
