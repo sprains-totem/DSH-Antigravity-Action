@@ -42,6 +42,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Unit tests (protocol layer)
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       # release 用调试用签名（可安装），也可由本地 keystore 覆盖
       - name: Generate signing keystore
         run: |

@@ -32,6 +32,18 @@ sealed interface QwenEvent {
         val reasonStop: String?
     ) : QwenEvent
 
+    /** 握手：眼镜上报 active_data / odm（会话令牌） */
+    data class ActiveData(val activeData: String?, val odm: String?) : QwenEvent
+
+    /** 握手：眼镜上报 pairAdv / pid / peerAddr（连接参数） */
+    data class PairInfo(val pid: Int?, val peerAddr: String?) : QwenEvent
+
+    /** 握手：眼镜上报 type:10001（连接状态通知） */
+    data class Type10001Q(val arg1: Int?, val arg2: Int?) : QwenEvent
+
+    /** 握手：attach_success（绑定完成确认） */
+    data class AttachSuccess(val code: Int?, val msg: String?) : QwenEvent
+
     /** 其他（心跳 / 同步 / 遥测），仅透传原始 JSON 文本 */
     data class Other(val raw: String) : QwenEvent
 }
@@ -86,6 +98,36 @@ object QwenEvents {
             .equals("system heartbeat", ignoreCase = true)
         if (hasHeartbeat) {
             return QwenEvent.Other(text)
+        }
+
+        // 4) 握手事件（来源 PROTOCOL.md §3：眼镜主动上报）
+        //    active_data / odm：会话令牌上报
+        if (obj.has("active_data")) {
+            return QwenEvent.ActiveData(
+                activeData = obj.optString("active_data", null),
+                odm = obj.optString("odm", null)
+            )
+        }
+        //    pairAdv / pid / peerAddr：连接参数上报
+        if (obj.has("pairAdv") || obj.has("pid")) {
+            return QwenEvent.PairInfo(
+                pid = obj.optInt("pid", -1).takeIf { it >= 0 },
+                peerAddr = obj.optString("peerAddr", null)
+            )
+        }
+        //    type:10001：连接状态通知（注意与请求同构，arg1/arg2 一致）
+        if (obj.optInt("type", -1) == 10001) {
+            return QwenEvent.Type10001Q(
+                arg1 = obj.optInt("arg1", -1).takeIf { it >= 0 },
+                arg2 = obj.optInt("arg2", -1).takeIf { it >= 0 }
+            )
+        }
+        //    attach_success：绑定完成确认
+        if (obj.optString("msg", "").contains("attach_success") || obj.has("attach_success")) {
+            return QwenEvent.AttachSuccess(
+                code = obj.optInt("code", -1).takeIf { it >= 0 },
+                msg = obj.optString("msg", null)
+            )
         }
 
         return QwenEvent.Other(text)

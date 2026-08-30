@@ -110,4 +110,7 @@ dependencies {
 
     // 导航（可选，保持轻量）
     implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // 单元测试
+    testImplementation("junit:junit:4.13.2")
 }
