@@ -56,8 +56,8 @@ class ClassicBtTransport(
      */
     @Synchronized
     fun connect(): Boolean {
-        // 按候选顺序依次尝试：BES 私有控制 0x03F0 → 数据 0x03FD → 标准 SPP
-        val candidates = listOf(sppUuid, QwenConstants.CONTROL_SPP_UUID)
+        // 按候选顺序依次尝试：官方绑定UUID → BES 0x03FD → BES 0x03F0
+        val candidates = listOf(sppUuid, QwenConstants.BES_DATA_UUID, QwenConstants.BES_CTRL_UUID)
             .distinct()
         for (uuid in candidates) {
             controlSocket = openSocket(uuid)

@@ -39,27 +39,29 @@ object QwenConstants {
     const val BITS_PER_SAMPLE: Int = 16
 
     /**
-     * 经典蓝牙 RFCOMM 服务 UUID（BES 私有 SPP 服务）。
+     * 经典蓝牙 RFCOMM 服务 UUID（官方 APP 提供的真实绑定 UUID）。
      *
-     * 来源：对 HCI 日志 SDP 段的分析 + BES2600 芯片公开资料（2026-08-30 确认）：
-     *   - 眼镜（恒玄 BES2600）暴露的私有 SPP 服务 UUID = 0x03FD / 0x03F0
-     *     （不是标准 SPP 0x1101，故此前用 0x1101 连不上）
-     *   - 0x03F0 = 私有控制通道（App 指令交互）
-     *   - 0x03FD = 高速数据通道（数据吞吐/遥测/音频）
-     * 扩展为标准 128-bit：000003FD-0000-1000-8000-00805F9B34FB
-     * 注：若真机 SDP 另有 128-bit 厂商形式，可在此覆盖。
+     * 来源：官方千问 APP 设备绑定信息中提供（2026-08-30 确认）：
+     *   D5A74C04-894A-4E70-C2AE-0BDC687904FE
+     *   （32 位十六进制 = 128-bit UUID；此前在握手中也用作 type:1103 的 SN 认证，
+     *     实际它就是眼镜的 RFCOMM 服务 UUID）
+     * 后备：BES 私有扩展 0x03FD / 0x03F0（若该 UUID 连接失败自动回退）
      */
-    val SPP_UUID: UUID = UUID.fromString("000003FD-0000-1000-8000-00805F9B34FB")
+    val SPP_UUID: UUID = UUID.fromString("D5A74C04-894A-4E70-C2AE-0BDC687904FE")
 
-    /** 可选的控制通道 UUID（若控制与数据分通道）：BES 私有 0x03F0 */
-    val CONTROL_SPP_UUID: UUID = UUID.fromString("000003F0-0000-1000-8000-00805F9B34FB")
+    /** 后备一：BES 私有高速数据通道 0x03FD */
+    val BES_DATA_UUID: UUID = UUID.fromString("000003FD-0000-1000-8000-00805F9B34FB")
 
-    /** 可选的第二通道（音频/数据）UUID：与 SPP_UUID 同为 0x03FD 系列 */
+    /** 后备二：BES 私有控制通道 0x03F0 */
+    val BES_CTRL_UUID: UUID = UUID.fromString("000003F0-0000-1000-8000-00805F9B34FB")
+
+    /** 可选的第二通道（音频/数据）UUID：与 SPP_UUID 相同（单通道复用） */
     val AUDIO_SPP_UUID: UUID? = null
 
     // ── 握手关键字段（来源 PROTOCOL.md §3）──
     const val ODM_ID: String = "AILABS_SG02_QW"
-    const val DEVICE_SN: String = "D5A74C04894A4E70C2AE0BDC687904FE"
+    /** 设备 SN（type:1103 认证用；眼镜 SynchronizeState 上报值） */
+    const val DEVICE_SN: String = "5200002612240211A002181"
     const val PHONE_TYPE: Int = 1
     const val SUPPORT_HEIC_DECODE: Int = 1
 
