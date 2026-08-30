@@ -15,13 +15,14 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 /**
- * 经典蓝牙（RFCOMM）传输层。
+ * 传输层（L2CAP 优先 + RFCOMM 兜底）。
  *
- * 设计要点（依据 PROTOCOL.md §4.1、§6.1 与 ARCHITECTURE.md §4.1）：
- *  - 控制通道：createRfcommSocketToServiceRecord(sppUuid) 连接，下发 JSON（CID 0x004A）；
- *  - 音频通道：若眼镜把音频放在独立 RFCOMM 通道（audioUuid 非空），另开一路 socket；
- *    否则音频帧与控制帧混在同一路，由上层读循环按魔数头全局匹配（见 QwenFrameParser）。
- *  - 两条读循环把原始字节统一喂给同一回调 [onBytes]，由上层做「JSON 行 / 音频帧」分用。
+ * 依据官方千问 APP 源码逆向（2026-08-30 确认）：
+ *  - 官方 APP 用 **L2CAP PSM=130** 连接眼镜（`BleL2capClient`，
+ *    `connectExclusive: connect target addr=..., psm=130`），
+ *    不是 RFCOMM！此前用 RFCOMM UUID 连不上是根因。
+ *  - `createL2capChannel(130)`（Android 10+, API 29+）
+ *  - RFCOMM（0x1101 等）仅作兜底。
  */
 class ClassicBtTransport(
     private val device: BluetoothDevice,
@@ -32,15 +33,37 @@ class ClassicBtTransport(
     private var controlSocket: BluetoothSocket? = null
     private var audioSocket: BluetoothSocket? = null
 
+    /** 官方 L2CAP PSM（从官方 APP 逆向确认） */
+    private val L2CAP_PSM: Int = QwenConstants.L2CAP_PSM
+
     /** 是否已建立任一连接 */
     val isConnected: Boolean
         get() = controlSocket?.isConnected == true || audioSocket?.isConnected == true
 
-    private fun openSocket(uuid: UUID): BluetoothSocket? {
+    /** 先试 L2CAP（PSM=130），失败再试 RFCOMM */
+    private fun openControlSocket(): BluetoothSocket? {
+        // 1) L2CAP CoC（官方方式）
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            try {
+                return device.createL2capChannel(L2CAP_PSM).also { it.connect() }
+            } catch (_: Exception) {
+                // L2CAP 失败，回退 RFCOMM
+            }
+        }
+        // 2) RFCOMM 候选（兜底）
+        val candidates = listOf(sppUuid, QwenConstants.BES_DATA_UUID, QwenConstants.BES_CTRL_UUID)
+            .distinct()
+        for (uuid in candidates) {
+            val s = openRfcomm(uuid)
+            if (s != null) return s
+        }
+        return null
+    }
+
+    private fun openRfcomm(uuid: UUID): BluetoothSocket? {
         return try {
             device.createRfcommSocketToServiceRecord(uuid).also { it.connect() }
         } catch (secure: IOException) {
-            // 部分眼镜仅接受 insecure RFCOMM
             try {
                 @Suppress("MissingPermission")
                 device.createInsecureRfcommSocketToServiceRecord(uuid).also { it.connect() }
@@ -56,18 +79,10 @@ class ClassicBtTransport(
      */
     @Synchronized
     fun connect(): Boolean {
-        // 按候选顺序依次尝试：官方绑定UUID → BES 0x03FD → BES 0x03F0
-        val candidates = listOf(sppUuid, QwenConstants.BES_DATA_UUID, QwenConstants.BES_CTRL_UUID)
-            .distinct()
-        for (uuid in candidates) {
-            controlSocket = openSocket(uuid)
-            if (controlSocket != null) {
-                break
-            }
-        }
+        controlSocket = openControlSocket()
         if (controlSocket == null) return false
         if (audioUuid != null) {
-            audioSocket = openSocket(audioUuid)
+            audioSocket = openRfcomm(audioUuid)
         }
         return true
     }

@@ -58,6 +58,9 @@ object QwenConstants {
     /** 可选的第二通道（音频/数据）UUID：与 SPP_UUID 相同（单通道复用） */
     val AUDIO_SPP_UUID: UUID? = null
 
+    /** ★ L2CAP PSM（官方 APP 逆向确认：connectExclusive: ... psm=130） */
+    const val L2CAP_PSM: Int = 130
+
     // ── 握手关键字段（来源 PROTOCOL.md §3）──
     const val ODM_ID: String = "AILABS_SG02_QW"
     /** 设备 SN（type:1103 认证用；眼镜 SynchronizeState 上报值） */
