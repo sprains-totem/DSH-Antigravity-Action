@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -146,26 +145,6 @@ fun ConnectScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("读取官方密钥 (root/Shizuku)") }
         }
-        // 密钥读取结果弹窗
-        if (rfShowKeyResult != null) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { rfShowKeyResult = null },
-                title = { Text("官方APP BLE 密钥") },
-                text = {
-                    androidx.compose.foundation.text.selection.SelectionContainer {
-                        Text(
-                            rfShowKeyResult!!,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 11.sp
-                        )
-                    }
-                },
-                confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { rfShowKeyResult = null }) { Text("关闭") }
-                }
-            )
-        }
-    }
 
         androidx.compose.foundation.layout.Spacer(Modifier.padding(8.dp))
         Text("已配对设备", style = MaterialTheme.typography.titleMedium)
@@ -186,6 +165,26 @@ fun ConnectScreen(
                 }
             }
         }
+    }
+
+    // 密钥读取结果弹窗（Column 之外）
+    if (rfShowKeyResult != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { rfShowKeyResult = null },
+            title = { Text("官方APP BLE 密钥") },
+            text = {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        rfShowKeyResult!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { rfShowKeyResult = null }) { Text("关闭") }
+            }
+        )
     }
 
     SnackbarHost(snackbar, modifier = Modifier.fillMaxSize())
