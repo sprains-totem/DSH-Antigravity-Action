@@ -110,7 +110,7 @@ object LogCollector {
     /** 缓冲区当前条数 */
     @JvmStatic
     val size: Int get() = buffer.size
-
-    /** ByteArray → Hex 字符串（日志用） */
-    fun ByteArray.toHex(): String = joinToString("") { "%02X".format(it) }
 }
+
+/** ByteArray → Hex 字符串（顶层扩展，全包可见） */
+fun ByteArray.toHex(): String = joinToString("") { "%02X".format(it) }

@@ -21,6 +21,7 @@ import com.vibeqwen.glasses.protocol.QwenEvent
 import com.vibeqwen.glasses.protocol.HandshakeState
 import com.vibeqwen.glasses.service.GlassesConnectionService
 import com.vibeqwen.glasses.util.LogCollector
+import com.vibeqwen.glasses.util.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

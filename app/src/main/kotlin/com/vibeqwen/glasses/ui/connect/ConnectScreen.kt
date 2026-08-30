@@ -120,7 +120,12 @@ fun ConnectScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("导出日志 (${LogCollector.size} 条)") }
             OutlinedButton(
-                onClick = { LogCollector.clear(); snackbar.showSnackbar("日志已清空") },
+                onClick = {
+                    scope.launch {
+                        LogCollector.clear()
+                        snackbar.showSnackbar("日志已清空")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("清空日志") }
         }
