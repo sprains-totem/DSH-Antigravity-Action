@@ -113,4 +113,7 @@ dependencies {
 
     // 单元测试
     testImplementation("junit:junit:4.13.2")
+    // Android 单测默认 org.json 为 stub（抛 Method not mocked），
+    // 引入 JVM 版 org.json 让协议层 JSON 解析可在单测中真实运行
+    testImplementation("org.json:json:20231013")
 }
