@@ -267,6 +267,9 @@ class ConnectionController(private val appContext: Context) {
             is QwenEvent.TaskState -> {
                 // 状态变化可用于日志；RECORDING 已由指令/事件驱动
             }
+            // 握手事件已由 QwenHandshake.onIncoming 消费（门闩驱动），这里无需额外处理
+            is QwenEvent.ActiveData, is QwenEvent.PairInfo,
+            is QwenEvent.Type10001Q, is QwenEvent.AttachSuccess -> Unit
             is QwenEvent.Other -> { /* 心跳/同步/遥测：保持连接活性 */ }
         }
     }

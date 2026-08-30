@@ -137,9 +137,11 @@ private fun stateLabel(s: ConnectionState): String = when (s) {
 
 private fun handStateLabel(s: HandshakeState): String = when (s) {
     HandshakeState.IDLE -> "空闲"
-    HandshakeState.SENDING_HELLO -> "问候"
-    HandshakeState.NEGOTIATING -> "协商"
-    HandshakeState.AUTHING -> "认证"
+    HandshakeState.DEVICE_QUERY -> "问候"
+    HandshakeState.WAIT_GLASSES_INFO -> "等待眼镜信息"
+    HandshakeState.AUTH_SESSION -> "协商"
+    HandshakeState.SN_AUTH -> "认证"
+    HandshakeState.WAIT_ATTACH -> "等待确认"
     HandshakeState.READY -> "完成"
     HandshakeState.FAILED -> "失败"
 }
