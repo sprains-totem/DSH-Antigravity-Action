@@ -111,6 +111,10 @@ dependencies {
     // 导航（可选，保持轻量）
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    // Shizuku（方案三：读取官方APP的BLE密钥，需要 Shizuku 授权）
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+
     // 单元测试
     testImplementation("junit:junit:4.13.2")
     // Android 单测默认 org.json 为 stub（抛 Method not mocked），

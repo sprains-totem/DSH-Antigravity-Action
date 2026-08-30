@@ -17,8 +17,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +44,7 @@ fun ConnectScreen(
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var rfShowKeyResult by remember { mutableStateOf<String?>(null) }
 
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     val handState by vm.handshakeState.collectAsStateWithLifecycle()
@@ -128,7 +131,48 @@ fun ConnectScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("清空日志") }
+
+            // 方案三：读取官方APP的BLE密钥（需要 Shizuku）
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val reader = com.vibeqwen.glasses.util.ShizukuKeyReader
+                        if (!reader.isShizukuAvailable()) {
+                            snackbar.showSnackbar("Shizuku 不可用：请先安装并启动 Shizuku (moe.shizuku.privileged.api)")
+                        } else if (!reader.isGranted()) {
+                            snackbar.showSnackbar("请在弹出的 Shizuku 授权对话框授予权限后重试")
+                            rfShowKeyResult = "Shizuku 已连接但未授权。请在系统弹出的授权框中允许。"
+                        } else {
+                            LogCollector.log("UI", "开始读取官方密钥")
+                            val result = reader.readOfficialBleKey()
+                            rfShowKeyResult = result
+                            LogCollector.log("UI", "读取结果: ${result.take(200)}")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("读取官方密钥 (Shizuku)") }
         }
+        // 密钥读取结果弹窗
+        if (rfShowKeyResult != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { rfShowKeyResult = null },
+                title = { Text("官方APP BLE 密钥") },
+                text = {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            rfShowKeyResult!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { rfShowKeyResult = null }) { Text("关闭") }
+                }
+            )
+        }
+    }
 
         androidx.compose.foundation.layout.Spacer(Modifier.padding(8.dp))
         Text("已配对设备", style = MaterialTheme.typography.titleMedium)

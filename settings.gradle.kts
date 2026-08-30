@@ -17,6 +17,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Shizuku 依赖仓库（dev.rikka.shizuku:api/provider）
+        maven("https://maven.rikka.app/")
     }
 }
 
