@@ -1,0 +1,14 @@
+# 编译产物
+*.iml
+.gradle/
+build/
+app/build/
+/local.properties
+/.idea/
+.DS_Store
+/externalNativeBuild
+/captures
+
+# 签名
+*.keystore
+release.keystore

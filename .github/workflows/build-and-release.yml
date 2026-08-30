@@ -1,0 +1,68 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# 仅需读取代码并上传产物（actions: write 供 upload-artifact 使用）
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages (android-34 + build-tools 34.0.0)
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          echo "y" | sdkmanager --licenses || true
+
+      # wrapper jar 可能本地缺失/损坏，这里从官方源补齐，保证 ./gradlew 可用
+      - name: Ensure Gradle wrapper jar
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -L -o gradle/wrapper/gradle-wrapper.jar \
+              https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+          fi
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # release 用调试用签名（可安装），也可由本地 keystore 覆盖
+      - name: Generate signing keystore
+        run: |
+          keytool -genkeypair -v -keystore release.keystore -alias vibeqwen \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=vibeQwen, OU=dev, O=vibeQwen, L=Shenzhen, ST=Guangdong, C=CN"
+
+      - name: Build release & debug APK
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: vibeqwen
+          KEY_PASSWORD: android
+        run: ./gradlew --no-daemon assembleRelease assembleDebug
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeQwenGlasses-apks
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
