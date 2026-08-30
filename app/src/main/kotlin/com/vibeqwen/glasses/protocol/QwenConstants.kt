@@ -39,13 +39,22 @@ object QwenConstants {
     const val BITS_PER_SAMPLE: Int = 16
 
     /**
-     * 经典蓝牙 RFCOMM 服务 UUID（SPP 0x1101）。
-     * 注意：眼镜实际暴露的 RFCOMM 通道 UUID 仍需在真机 SDP 抓包中确认（PROTOCOL.md §8 待办）；
-     * 这里默认 SPP，并允许上层在连接时覆盖（例如厂商自定义 UUID）。
+     * 经典蓝牙 RFCOMM 服务 UUID（BES 私有 SPP 服务）。
+     *
+     * 来源：对 HCI 日志 SDP 段的分析 + BES2600 芯片公开资料（2026-08-30 确认）：
+     *   - 眼镜（恒玄 BES2600）暴露的私有 SPP 服务 UUID = 0x03FD / 0x03F0
+     *     （不是标准 SPP 0x1101，故此前用 0x1101 连不上）
+     *   - 0x03F0 = 私有控制通道（App 指令交互）
+     *   - 0x03FD = 高速数据通道（数据吞吐/遥测/音频）
+     * 扩展为标准 128-bit：000003FD-0000-1000-8000-00805F9B34FB
+     * 注：若真机 SDP 另有 128-bit 厂商形式，可在此覆盖。
      */
-    val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+    val SPP_UUID: UUID = UUID.fromString("000003FD-0000-1000-8000-00805F9B34FB")
 
-    /** 可选的第二通道（音频）UUID：若眼镜把音频与控制放在不同 RFCOMM 通道，可在此配置 */
+    /** 可选的控制通道 UUID（若控制与数据分通道）：BES 私有 0x03F0 */
+    val CONTROL_SPP_UUID: UUID = UUID.fromString("000003F0-0000-1000-8000-00805F9B34FB")
+
+    /** 可选的第二通道（音频/数据）UUID：与 SPP_UUID 同为 0x03FD 系列 */
     val AUDIO_SPP_UUID: UUID? = null
 
     // ── 握手关键字段（来源 PROTOCOL.md §3）──

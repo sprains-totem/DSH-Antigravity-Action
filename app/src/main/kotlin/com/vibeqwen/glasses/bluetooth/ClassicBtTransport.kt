@@ -2,6 +2,7 @@ package com.vibeqwen.glasses.bluetooth
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
+import com.vibeqwen.glasses.protocol.QwenConstants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -55,7 +56,15 @@ class ClassicBtTransport(
      */
     @Synchronized
     fun connect(): Boolean {
-        controlSocket = openSocket(sppUuid)
+        // 按候选顺序依次尝试：BES 私有控制 0x03F0 → 数据 0x03FD → 标准 SPP
+        val candidates = listOf(sppUuid, QwenConstants.CONTROL_SPP_UUID)
+            .distinct()
+        for (uuid in candidates) {
+            controlSocket = openSocket(uuid)
+            if (controlSocket != null) {
+                break
+            }
+        }
         if (controlSocket == null) return false
         if (audioUuid != null) {
             audioSocket = openSocket(audioUuid)
