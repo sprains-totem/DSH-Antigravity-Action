@@ -101,6 +101,7 @@ fun RecordScreen(
         Spacer(Modifier.height(16.dp))
 
         // 实时波形
+        val primaryColor = MaterialTheme.colorScheme.primary
         Canvas(
             Modifier.fillMaxWidth().height(120.dp)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
@@ -115,7 +116,7 @@ fun RecordScreen(
                     val barH = (a * h * 0.9f).coerceAtLeast(2f)
                     val x = i * step + step / 2
                     drawLine(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = primaryColor,
                         start = Offset(x, h / 2 - barH / 2),
                         end = Offset(x, h / 2 + barH / 2),
                         strokeWidth = (step * 0.6f).coerceAtLeast(1f)

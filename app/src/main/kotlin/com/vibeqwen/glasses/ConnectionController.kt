@@ -16,6 +16,7 @@ import com.vibeqwen.glasses.protocol.QwenConstants
 import com.vibeqwen.glasses.protocol.QwenEvents
 import com.vibeqwen.glasses.protocol.QwenFrameParser
 import com.vibeqwen.glasses.protocol.QwenHandshake
+import com.vibeqwen.glasses.protocol.QwenEvent
 import com.vibeqwen.glasses.protocol.HandshakeState
 import com.vibeqwen.glasses.service.GlassesConnectionService
 import kotlinx.coroutines.CoroutineScope
@@ -246,7 +247,7 @@ class ConnectionController(private val appContext: Context) {
         QwenHandshake.onIncoming(json)
         val ev = QwenEvents.parse(json) ?: return
         when (ev) {
-            is QwenEvents.RecordStart -> {
+            is QwenEvent.RecordStart -> {
                 // 眼镜侧已开始推流；若本端还未进入 RECORDING（眼镜发起场景），也标记录音中
                 if (_recordingState.value == RecordingState.IDLE) {
                     pipeline = AudioPipeline(recordingsDir)
@@ -257,16 +258,16 @@ class ConnectionController(private val appContext: Context) {
                     startWatchdog()
                 }
             }
-            is QwenEvents.RecordEnd -> {
+            is QwenEvent.RecordEnd -> {
                 // 眼镜侧已停止（眼镜结束场景）
                 if (_recordingState.value == RecordingState.RECORDING) {
                     scope.launch { finalizeRecording() }
                 }
             }
-            is QwenEvents.TaskState -> {
+            is QwenEvent.TaskState -> {
                 // 状态变化可用于日志；RECORDING 已由指令/事件驱动
             }
-            is QwenEvents.Other -> { /* 心跳/同步/遥测：保持连接活性 */ }
+            is QwenEvent.Other -> { /* 心跳/同步/遥测：保持连接活性 */ }
         }
     }
 
