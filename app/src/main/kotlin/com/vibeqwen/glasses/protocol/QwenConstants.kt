@@ -63,8 +63,8 @@ object QwenConstants {
     const val PHONE_TYPE: Int = 1
     const val SUPPORT_HEIC_DECODE: Int = 1
 
-    /** 眼镜目标 MAC（来源 START_HERE.md / PROTOCOL.md §8.1 修正） */
-    const val GLASSES_MAC: String = "A0:FB:C5:21:9B:20"
+    /** 眼镜目标 MAC（实测：Qwen Glasses G1191C） */
+    const val GLASSES_MAC: String = "C4:D7:DC:40:19:1C"
 
     /** 名称关键字，用于从已配对设备里筛出眼镜 */
     val GLASSES_NAME_HINTS: List<String> = listOf("G1", "QWEN", "GLASSES", "QUARK")
