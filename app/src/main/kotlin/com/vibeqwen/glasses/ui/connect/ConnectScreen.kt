@@ -132,18 +132,31 @@ fun ConnectScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("清空日志") }
 
-            // 方案三：读取官方APP的BLE密钥（root 或 Shizuku）
+            // 方案三：读取官方APP的BLE密钥（Shizuku 授权 / root 兜底）
             OutlinedButton(
                 onClick = {
                     scope.launch {
-                        LogCollector.log("UI", "开始读取官方密钥")
-                        val result = com.vibeqwen.glasses.util.ShizukuKeyReader.readOfficialBleKey()
-                        rfShowKeyResult = result
-                        LogCollector.log("UI", "读取结果: ${result.take(200)}")
+                        LogCollector.log("UI", "用户点击读取官方密钥")
+                        val reader = com.vibeqwen.glasses.util.ShizukuKeyReader
+                        if (!reader.isShizukuAvailable() && !reader.hasRoot()) {
+                            rfShowKeyResult = "Shizuku 未启动 / 无 root。\n请先启动 Shizuku（moe.shizuku.privileged.api）后重试。"
+                        } else if (reader.isShizukuAvailable() && !reader.isGranted()) {
+                            val ok = reader.requestPermission()
+                            rfShowKeyResult = if (ok) {
+                                "已发起 Shizuku 授权请求。\n请在系统弹窗中允许，然后再次点击「读取官方密钥」。"
+                            } else {
+                                "Shizuku 授权请求失败，请手动在 Shizuku 中授权本应用。"
+                            }
+                        } else {
+                            LogCollector.log("UI", "Shizuku已授权/root可用，开始读取")
+                            val result = reader.readOfficialBleKey()
+                            rfShowKeyResult = result
+                            LogCollector.log("UI", "读取结果: ${result.take(200)}")
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("读取官方密钥 (root/Shizuku)") }
+            ) { Text("读取官方密钥 (Shizuku)") }
         }
 
         androidx.compose.foundation.layout.Spacer(Modifier.padding(8.dp))
