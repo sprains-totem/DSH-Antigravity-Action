@@ -26,16 +26,16 @@ class QwenHandshakeTest {
             )
         }
 
-        // 等待第一阶段的发送完成后，模拟眼镜回包序列（异步喂入门闩）
-        delay(120)
+        // 模拟眼镜回包：先喂 active_data（解除 infoGate），再喂 attach_success（解除 attachGate）
+        delay(200)
         QwenHandshake.onIncoming("""{"active_data":"656D4B74446A","odm":"AILABS_SG02_QW"}""")
         QwenHandshake.onIncoming("""{"pairAdv":false,"pid":8665,"peerAddr":"22:c1:37:10:6e:b4"}""")
-        delay(80)
+        delay(200)
         QwenHandshake.onIncoming("""{"type":10001,"arg1":1,"arg2":1}""")
         QwenHandshake.onIncoming("""{"code":1,"msg":"attach_success"}""")
 
-        handshakeJob.await()
-
+        val result = kotlinx.coroutines.withTimeoutOrNull(5000) { handshakeJob.await(); "done" }
+        assertEquals("done", result)
         assertEquals(HandshakeState.READY, QwenHandshake.state)
         assertTrue(states.contains(HandshakeState.WAIT_GLASSES_INFO))
         assertTrue(states.contains(HandshakeState.WAIT_ATTACH))
@@ -60,12 +60,13 @@ class QwenHandshakeTest {
             )
         }
 
-        delay(120)
+        delay(200)
         QwenHandshake.onIncoming("""{"active_data":"AAA","odm":"AILABS_SG02_QW"}""")
-        delay(80)
+        delay(200)
         QwenHandshake.onIncoming("""{"code":1,"msg":"attach_success"}""")
 
-        handshakeJob.await()
+        val result = kotlinx.coroutines.withTimeoutOrNull(5000) { handshakeJob.await(); "done" }
+        assertEquals("done", result)
         assertEquals(HandshakeState.READY, QwenHandshake.state)
     }
 
