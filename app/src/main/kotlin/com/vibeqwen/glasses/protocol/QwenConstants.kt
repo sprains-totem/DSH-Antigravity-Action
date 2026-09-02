@@ -55,6 +55,20 @@ object QwenConstants {
     /** 后备二：BES 私有控制通道 0x03F0 */
     val BES_CTRL_UUID: UUID = UUID.fromString("000003F0-0000-1000-8000-00805F9B34FB")
 
+    // ── BLE 广播特征（官方 APP 逆向确认，2026-08-30 vibeADB 真机验证）──
+    /** 官方 APP 扫描眼镜的 Service UUID: 0xFEB3（Alibaba 私有） */
+    val BLE_GLASSES_SERVICE_UUID: UUID =
+        UUID.fromString("0000FEB3-0000-1000-8000-00805F9B34FB")
+
+    /** 官方 APP 扫描眼镜的厂商 ID: 424 (0x1A8) */
+    const val BLE_GLASSES_MANUFACTURER_ID: Int = 424
+
+    /** 厂商数据 "WoW"（87,111,87）—— 眼镜广播标识 */
+    val BLE_GLASSES_ADV_WOW: ByteArray = byteArrayOf(0x57, 0x6F, 0x57)
+
+    /** 厂商数据 "QWE"（81,87,69）—— 眼镜广播标识（另一形态） */
+    val BLE_GLASSES_ADV_QWE: ByteArray = byteArrayOf(0x51, 0x57, 0x45)
+
     /** 可选的第二通道（音频/数据）UUID：与 SPP_UUID 相同（单通道复用） */
     val AUDIO_SPP_UUID: UUID? = null
 
