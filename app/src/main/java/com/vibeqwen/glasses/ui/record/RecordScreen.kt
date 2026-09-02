@@ -28,6 +28,7 @@ import com.vibeqwen.glasses.service.ConnectionState
 import com.vibeqwen.glasses.service.GlassesBus
 import com.vibeqwen.glasses.ui.components.RecordButton
 import com.vibeqwen.glasses.ui.components.WaveformBar
+import com.vibeqwen.glasses.ui.connect.ConnectViewModel
 import com.vibeqwen.glasses.util.TimeFormat
 
 /**
