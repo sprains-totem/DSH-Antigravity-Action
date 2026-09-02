@@ -184,13 +184,22 @@ class GlassesConnectionService : Service() {
             it.copy(connection = ConnectionState.HANDSHAKING, message = "正在与眼镜握手…")
         }
         updateNotification()
+        com.vibeqwen.glasses.protocol.QwenFramer.resetSeq()
+
+        // 1. 发送 GCSP 版本协商请求 (08 00 00 00 05 47 43 00 01 02)
+        val negReq = com.vibeqwen.glasses.protocol.QwenFramer.versionNegFrame(2)
+        com.vibeqwen.glasses.util.LogCollector.h("发送 GCSP 版本协商请求(0x0001): " + negReq.joinToString("") { "%02X".format(it) })
+        transport?.write(negReq)
+
+        // 2. 发送 node 初始化帧 (官方 10B 帧头 + CRC16 封装)
         com.vibeqwen.glasses.util.LogCollector.h("发送 node 初始化...")
         transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.nodeInitFrame())
+
         handshake = QwenHandshake(
             scope = scope,
             send = { text ->
-                // 官方 APP 私有帧封装（10B 头 + JSON）
-                com.vibeqwen.glasses.util.LogCollector.h("←发送(帧封装): ${text.take(120)}")
+                // 官方 APP GCSP 帧封装（10B 头 + JSON + CRC16）
+                com.vibeqwen.glasses.util.LogCollector.h("←发送(GCSP帧): ${text.take(120)}")
                 transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.wrapJson(text))
             },
         ).also { h ->
@@ -210,8 +219,6 @@ class GlassesConnectionService : Service() {
                 }
                 updateNotification()
             }
-            // 官方 APP 前置：先发 node 会话初始化
-            transport?.write(QwenFramer.nodeInitFrame())
             h.start()
         }
     }
@@ -250,6 +257,7 @@ class GlassesConnectionService : Service() {
     }
 
     private fun handleRawBytes(bytes: ByteArray) {
+        com.vibeqwen.glasses.util.LogCollector.log("PROTO", "收到非JSON原始字节: ${bytes.size}B " + bytes.take(24).joinToString("") { "%02X".format(it) })
         val frames = frameParser.feed(bytes)
         if (frames.isEmpty()) return
         for (frame in frames) {
