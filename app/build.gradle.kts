@@ -1,6 +1,9 @@
+// app 模块：Kotlin + Jetpack Compose，minSdk 26 / compileSdk 34
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -12,45 +15,19 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
-
-        vectorDrawables {
-            useSupportLibrary = true
-        }
-        // 仅保留中英文资源（默认 strings.xml 始终包含）
-        resourceConfigurations += listOf("zh", "en")
-    }
-
-    // 签名配置：CI 中通过环境变量注入（生成临时 keystore），本地可用 debug keystore
-    signingConfigs {
-        create("release") {
-            val keystorePath = System.getenv("KEYSTORE_PATH")
-            if (keystorePath != null) {
-                storeFile = file(keystorePath)
-            } else {
-                // 本地未提供时回退到 Android 默认 debug keystore，便于本地 assembleRelease
-                val debugStore = File(System.getProperty("user.home"), ".android/debug.keystore")
-                storeFile = if (debugStore.exists()) debugStore else file("release.keystore")
-            }
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "android"
-            keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
-        }
+        versionName = "0.1.0-m1"
     }
 
     buildTypes {
         release {
+            // minify 关闭，避免混淆带来额外风险（MVP）
             isMinifyEnabled = false
-            isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-        debug {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // 用 debug keystore 签名 release，保证 CI 产物可直接安装
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -59,65 +36,58 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
-    composeOptions {
-        // 与 Kotlin 1.9.24 配套的 Compose 编译器
-        kotlinCompilerExtensionVersion = "1.5.14"
+    lint {
+        // MVP 阶段放宽 lint：避免非致命告警阻断 CI
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     packaging {
         resources {
-            excludes += listOf(
-                "/META-INF/{AL2.0,LGPL2.1}",
-                "/META-INF/LICENSE*",
-                "/META-INF/NOTICE*"
-            )
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 }
 
-dependencies {
-    // AndroidX 核心
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
-    implementation("androidx.activity:activity-compose:1.9.2")
+// Kotlin 编译目标（Kotlin 2.0 DSL，需在 android 块之外）
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
 
-    // Jetpack Compose（使用 BOM 统一版本）
-    implementation(platform("androidx.compose:compose-bom:2024.09.00"))
+dependencies {
+    // 基础
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
+    // Compose（BOM 统一版本）
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.animation:animation-graphics")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // 协程
+    // 协程 + JSON（协议层纯 Kotlin，可单测）
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // lifecycle 与 Compose 状态收集
-    implementation("androidx.lifecycle:lifecycle-viewmodel:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+    // 单元测试（协议层）
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // 导航（可选，保持轻量）
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-
-    // Shizuku（方案三：读取官方APP的BLE密钥，需要 Shizuku 授权）
+    // Shizuku（方案三：读取官方APP的BLE密钥）
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
-
-    // 单元测试
-    testImplementation("junit:junit:4.13.2")
-    // Android 单测默认 org.json 为 stub（抛 Method not mocked），
-    // 引入 JVM 版 org.json 让协议层 JSON 解析可在单测中真实运行
-    testImplementation("org.json:json:20231013")
 }

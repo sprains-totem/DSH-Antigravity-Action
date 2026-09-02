@@ -1,3 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">vibeQwenGlasses</string>
+    <string name="service_channel_name">眼镜连接服务</string>
+    <string name="notification_connecting">正在连接眼镜…</string>
+    <string name="notification_connected">已连接</string>
+    <string name="notification_handshaking">正在握手…</string>
+    <string name="notification_recording">录音中 %1$s</string>
+    <string name="notification_error">连接异常：%1$s</string>
+    <string name="notification_stop_action">停止录音</string>
 </resources>

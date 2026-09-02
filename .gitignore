@@ -1,14 +1,16 @@
-# 编译产物
-*.iml
+# Gradle
 .gradle/
 build/
-app/build/
-/local.properties
-/.idea/
+# 本地配置
+local.properties
+# IDE
+.idea/
+*.iml
 .DS_Store
-/externalNativeBuild
-/captures
-
-# 签名
-*.keystore
-release.keystore
+captures/
+.externalNativeBuild/
+.cxx/
+# 日志/临时
+*.log
+*.hprof
+.ci_logs/

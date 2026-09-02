@@ -1,5 +1,9 @@
-# vibeQwenGlasses 默认不开启混淆（isMinifyEnabled=false）。
-# 保留此文件以便 release 构建引用，并避免删除必要组件。
--keep class com.vibeqwen.glasses.** { *; }
--keep class androidx.core.content.FileProvider { *; }
--dontwarn org.json.**
+# 保持默认；当前未启用混淆（isMinifyEnabled=false）。预留规则模板。
+# 若后续开启 R8：
+# - kotlinx.serialization 需要序列化器保留规则
+# -keepattributes *Annotation*, InnerClasses
+# -dontnote kotlinx.serialization.**
+# -keepclassmembers class **$$serializer { *; }
+# -keepclasseswithmembers class * {
+#     kotlinx.serialization.KSerializer serializer(...);
+# }

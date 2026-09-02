@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.VibeQwen" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#0E0E12</item>
-        <item name="android:colorBackground">#0E0E12</item>
-        <item name="android:statusBarColor">#0E0E12</item>
-        <item name="android:navigationBarColor">#0E0E12</item>
+    <!-- 深色音频风：系统 Material 深色底 + 状态栏黑 -->
+    <style name="Theme.VibeQwenGlasses" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

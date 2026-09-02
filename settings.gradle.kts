@@ -1,3 +1,4 @@
+// vibeQwenGlasses 工程设置
 pluginManagement {
     repositories {
         google {
@@ -11,7 +12,6 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {

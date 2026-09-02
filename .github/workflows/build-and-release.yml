@@ -1,18 +1,22 @@
-name: Build and Release APK
+# vibeQwenGlasses CI/CD：主分支 push 触发构建，
+# 产出 debug + release APK 并上传 artifact。
+# release 使用 debug keystore 签名保证可直接安装。
+name: Build & Release APK
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-# 需要写权限以创建 Release 并上传资产
-permissions:
-  contents: write
-  actions: write
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,52 +27,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Install SDK packages (android-34 + build-tools 34.0.0)
-        run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
-          echo "y" | sdkmanager --licenses || true
-
-      # wrapper jar 可能本地缺失/损坏，这里从官方源补齐，保证 ./gradlew 可用
-      - name: Ensure Gradle wrapper jar
-        run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            curl -L -o gradle/wrapper/gradle-wrapper.jar \
-              https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
-          fi
-
-      - name: Make gradlew executable
+      - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Unit tests (protocol layer)
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew testDebugUnitTest --no-daemon
 
-      # release 用调试用签名（可安装），也可由本地 keystore 覆盖
-      - name: Generate signing keystore
-        run: |
-          keytool -genkeypair -v -keystore release.keystore -alias vibeqwen \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=vibeQwen, OU=dev, O=vibeQwen, L=Shenzhen, ST=Guangdong, C=CN"
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build release & debug APK
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
-          KEYSTORE_PASSWORD: android
-          KEY_ALIAS: vibeqwen
-          KEY_PASSWORD: android
-        run: ./gradlew --no-daemon assembleRelease assembleDebug
+      - name: Assemble release APK (instalable, debug-keystore signed)
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: vibeQwenGlasses-apks
           path: |
-            app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 30
 
       - name: Publish GitHub Release (APK)
         if: success()
@@ -82,8 +64,8 @@ jobs:
             - **app-release.apk**：release 构建（可安装）
             - **app-debug.apk**：debug 构建（可安装）
           files: |
-            app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
         env:

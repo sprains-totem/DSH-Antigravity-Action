@@ -2,58 +2,63 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 旧版本经典蓝牙权限（API 30-） -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-
-    <!-- Android 12+ 蓝牙权限 -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- ── 经典蓝牙：API 31+ 需运行时权限，30- 用旧权限 + 定位 ── -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- 前台服务（录音走蓝牙连接设备） -->
+    <!-- ── 通知（API 33+ 运行时）与前台服务 ── -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature
         android:name="android.hardware.bluetooth"
-        android:required="false" />
+        android:required="true" />
 
     <!-- Shizuku：用于读取官方APP的BLE密钥（方案三调试） -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
     <application
-        android:name=".GlassesApp"
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.VibeQwen">
+        android:theme="@style/Theme.VibeQwenGlasses">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.VibeQwen"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <!-- 前台服务：持有蓝牙连接 + 协议会话 + 音频管线 -->
         <service
             android:name=".service.GlassesConnectionService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- 分享录音文件用 FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
+            android:authorities="com.vibeqwen.glasses.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -64,7 +69,7 @@
         <!-- Shizuku provider（方案三读取官方密钥） -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
+            android:authorities="com.vibeqwen.glasses.shizuku"
             android:enabled="true"
             android:exported="true"
             android:multiprocess="false"

@@ -1,15 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- 录音文件位于 getExternalFilesDir("Music")/vibeQwenGlasses -->
+    <!-- 录音输出目录：getExternalFilesDir(Music)/vibeQwenGlasses -->
     <external-files-path
         name="recordings"
-        path="Music/vibeQwenGlasses" />
-    <!-- 日志导出目录 getExternalFilesDir(null)/logs -->
+        path="Music/vibeQwenGlasses/" />
     <external-files-path
-        name="logs"
-        path="logs" />
-    <!-- 兜底根目录（覆盖其它子目录导出） -->
-    <external-files-path
-        name="root"
+        name="external_music_root"
         path="." />
 </paths>
