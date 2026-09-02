@@ -41,7 +41,8 @@ fun RecordScreen(
     val state by GlassesBus.uiState.collectAsStateWithLifecycle()
     val waveform by GlassesBus.waveform.collectAsStateWithLifecycle()
 
-    val ready = state.connection == ConnectionState.READY
+    val hasPerm = ConnectViewModel.hasPermissions(context)
+    val canRecord = hasPerm || state.recording
 
     Column(
         modifier = Modifier
@@ -53,12 +54,12 @@ fun RecordScreen(
         // 状态提示
         Text(
             when {
-                state.recording -> "录音中"
-                ready -> "就绪，点击开始录音"
+                state.recording -> "蓝牙 SCO 录音中"
+                state.connection == ConnectionState.READY -> "就绪，点击开始录音"
                 state.connection == ConnectionState.CONNECTING -> "正在连接眼镜…"
                 state.connection == ConnectionState.HANDSHAKING -> "正在握手认证…"
-                state.connection == ConnectionState.ERROR -> "连接异常，请先连接眼镜"
-                else -> "未连接眼镜"
+                state.deviceMac != null -> "蓝牙免提已连接，点击开始录音"
+                else -> "准备就绪，点击开始录音"
             },
             style = MaterialTheme.typography.titleMedium,
             color = if (state.recording) MaterialTheme.colorScheme.primary
@@ -88,7 +89,7 @@ fun RecordScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "已接收 ${state.frames} 帧",
+            "已采集 ${state.frames} 帧",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -98,7 +99,7 @@ fun RecordScreen(
         // 大录音按钮
         RecordButton(
             recording = state.recording,
-            enabled = ready || state.recording,
+            enabled = canRecord,
             onClick = {
                 if (state.recording) vm.stopRecording(context) else vm.startRecording(context)
             },

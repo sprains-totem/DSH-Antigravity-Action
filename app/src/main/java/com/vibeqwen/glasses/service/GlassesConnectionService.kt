@@ -305,10 +305,6 @@ class GlassesConnectionService : Service() {
 
     private fun startRecording(auto: Boolean = false) {
         if (recording) return
-        if (!isReady()) {
-            publish { it.copy(connection = ConnectionState.ERROR, lastError = "尚未就绪（READY），无法录音") }
-            return
-        }
         recording = true
         recordStartMs = System.currentTimeMillis()
 
@@ -332,7 +328,7 @@ class GlassesConnectionService : Service() {
             publish { it.copy(frames = it.frames + 1) }
         }.also { it.start() }
 
-        // 下发 3 条开始指令（官方 10 字节私有帧封装）
+        // 如果控制通道在线，同步下发 3 条开始指令（官方 10 字节私有帧封装）
         val cmds = QwenCommands.startRecord()
         scope.launch {
             for (c in cmds) {
