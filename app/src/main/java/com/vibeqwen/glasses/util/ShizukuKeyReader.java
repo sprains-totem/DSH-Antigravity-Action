@@ -64,21 +64,6 @@ public class ShizukuKeyReader {
         }
     }
 
-    /** 用 Shizuku 的 shell 权限执行命令 */
-    public static String shShizuku(String command) {
-        if (!isShizukuAvailable() || !isGranted()) return null;
-        try {
-            rikka.shizuku.Shizuku.ShizukuRemoteProcess proc =
-                    Shizuku.newProcess(new String[]{"sh", "-c", command}, null, null);
-            if (proc == null) return null;
-            String text = new String(proc.getInputStream().readAllBytes(), "UTF-8").trim();
-            proc.awaitFor();
-            return text;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     /** 是否有 root */
     public static boolean hasRoot() {
         try {
@@ -104,8 +89,7 @@ public class ShizukuKeyReader {
     }
 
     private static String sh(String command) {
-        String a = shShizuku(command);
-        return a != null ? a : shRoot(command);
+        return shRoot(command);
     }
 
     /** 读取官方 APP 的 BLE 认证密钥 */
