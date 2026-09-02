@@ -117,6 +117,7 @@ class GlassesConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.vibeqwen.glasses.util.LogCollector.init(applicationContext)
         createNotificationChannel()
         acquireWakeLock()
     }

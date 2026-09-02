@@ -37,6 +37,7 @@ import com.vibeqwen.glasses.ui.theme.VibeQwenTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.vibeqwen.glasses.util.LogCollector.init(applicationContext)
         setContent {
             VibeQwenTheme {
                 MainScreen()

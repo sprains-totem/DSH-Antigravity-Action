@@ -306,24 +306,15 @@ private fun DeviceRow(
     }
 }
 
-/** 导出并分享 APP 内日志 */
+/** 导出 APP 内日志到本地文件（供 adb 或文件管理器直接读取，不弹分享框） */
 private fun exportLogs(context: android.content.Context) {
-    com.vibeqwen.glasses.util.LogCollector.log("UI", "用户点击导出日志")
+    com.vibeqwen.glasses.util.LogCollector.log("UI", "保存日志到文件")
     val file = com.vibeqwen.glasses.util.LogCollector.export(context)
     if (file != null) {
-        com.vibeqwen.glasses.util.LogCollector.log("UI", "日志已导出: ${file.absolutePath}")
-        try {
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context, context.packageName + ".fileprovider", file
-            )
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(android.content.Intent.createChooser(intent, "分享日志"))
-        } catch (_: Exception) {
-            // FileProvider 未覆盖路径时仅提示文件位置
-        }
+        android.widget.Toast.makeText(
+            context,
+            "已保存至: ${file.name}\nadb cat /sdcard/Android/data/${context.packageName}/files/logs/latest.log",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 }
