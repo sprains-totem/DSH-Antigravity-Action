@@ -85,6 +85,7 @@ class GlassesConnectionService : Service() {
     private var transport: ClassicBtTransport? = null
     private var handshake: QwenHandshake? = null
     private var pipeline: AudioPipeline? = null
+    private var scoRecorder: com.vibeqwen.glasses.audio.ScoAudioRecorder? = null
     private var frameParser = QwenFrameParser()
     private var wakeLock: PowerManager.WakeLock? = null
     private var tickerJob: Job? = null
@@ -324,6 +325,13 @@ class GlassesConnectionService : Service() {
             p.start(recordStartMs)
         }
 
+        // 启动蓝牙 SCO 音频录制（HFP 16kHz 录音）
+        scoRecorder?.stop()
+        scoRecorder = com.vibeqwen.glasses.audio.ScoAudioRecorder(this) { pcm ->
+            pipeline?.writeFrame(pcm)
+            publish { it.copy(frames = it.frames + 1) }
+        }.also { it.start() }
+
         // 下发 3 条开始指令（官方 10 字节私有帧封装）
         val cmds = QwenCommands.startRecord()
         scope.launch {
@@ -359,6 +367,8 @@ class GlassesConnectionService : Service() {
     private fun finalizeRecording(reason: String) {
         if (!recording) return
         recording = false
+        scoRecorder?.stop()
+        scoRecorder = null
         tickerJob?.cancel()
         tickerJob = null
         pipeline?.stop()

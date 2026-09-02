@@ -47,6 +47,7 @@ class ConnectViewModel : ViewModel() {
     companion object {
         /** 需要请求的运行时权限（按 API 分级） */
         fun requiredPermissions(): List<String> = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_CONNECT)
