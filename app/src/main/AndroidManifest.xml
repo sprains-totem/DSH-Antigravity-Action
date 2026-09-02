@@ -28,9 +28,6 @@
         android:name="android.hardware.bluetooth"
         android:required="true" />
 
-    <!-- Shizuku：用于读取官方APP的BLE密钥（方案三调试） -->
-    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
-
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -65,15 +62,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- Shizuku provider（方案三读取官方密钥） -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="com.vibeqwen.glasses.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.MANAGE_USERS" />
     </application>
 
 </manifest>

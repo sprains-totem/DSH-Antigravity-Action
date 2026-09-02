@@ -54,7 +54,7 @@ fun ConnectScreen(
     val context = LocalContext.current
     val state by GlassesBus.uiState.collectAsStateWithLifecycle()
     val devices by vm.devices.collectAsStateWithLifecycle()
-    var rfShowKeyResult by remember { mutableStateOf<String?>(null) }
+    var scanResultText by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { vm.refresh(context) }
 
@@ -92,27 +92,6 @@ fun ConnectScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
-        // 方案三：读取官方APP的BLE密钥（Shizuku 授权 / root 兜底）
-        OutlinedButton(
-            onClick = {
-                val available = com.vibeqwen.glasses.util.ShizukuKeyReader.isShizukuAvailable()
-                val granted = com.vibeqwen.glasses.util.ShizukuKeyReader.isGranted()
-                val root = com.vibeqwen.glasses.util.ShizukuKeyReader.hasRoot()
-                if (!available && !root) {
-                    rfShowKeyResult = "Shizuku 未启动 / 无 root。\n请先启动 Shizuku（moe.shizuku.privileged.api）后重试。"
-                } else if (available && !granted) {
-                    val ok = com.vibeqwen.glasses.util.ShizukuKeyReader.requestPermission()
-                    rfShowKeyResult = if (ok) {
-                        "已发起 Shizuku 授权请求。\n请在系统弹窗中允许，然后再次点击「读取官方密钥」。"
-                    } else {
-                        "Shizuku 授权请求失败，请手动在 Shizuku 中授权本应用。"
-                    }
-                } else {
-                    rfShowKeyResult = com.vibeqwen.glasses.util.ShizukuKeyReader.readOfficialBleKey()
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("读取官方密钥 (Shizuku)") }
 
         // BLE 扫描（官方 APP 特征：0xFEB3 + WoW/QWE）
         OutlinedButton(
@@ -123,11 +102,11 @@ fun ConnectScreen(
                     durationMs = 8000,
                     onFound = { dev, adv ->
                         found = true
-                        rfShowKeyResult = "BLE 发现眼镜:\n${dev.address}\n广播 ${adv.size} 字节\n详情见日志"
+                        scanResultText = "BLE 发现眼镜:\n${dev.address}\n广播 ${adv.size} 字节\n详情见日志"
                     },
                     onDone = {
                         if (!found) {
-                            rfShowKeyResult = "BLE 扫描完成，未发现 0xFEB3+WoW 设备。\n请确认眼镜开机且在附近。"
+                            scanResultText = "BLE 扫描完成，未发现 0xFEB3+WoW 设备。\n请确认眼镜开机且在附近。"
                         }
                     }
                 )
@@ -135,18 +114,18 @@ fun ConnectScreen(
             modifier = Modifier.fillMaxWidth()
         ) { Text("BLE 扫描眼镜 (0xFEB3)") }
 
-        // 密钥结果弹窗
-        rfShowKeyResult?.let { result ->
+        // 扫描结果弹窗
+        scanResultText?.let { result ->
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = { rfShowKeyResult = null },
-                title = { Text("官方APP BLE 密钥") },
+                onDismissRequest = { scanResultText = null },
+                title = { Text("BLE 扫描结果") },
                 text = {
                     androidx.compose.foundation.text.selection.SelectionContainer {
                         Text(result, style = MaterialTheme.typography.bodySmall, fontSize = 11.sp)
                     }
                 },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { rfShowKeyResult = null }) { Text("关闭") }
+                    androidx.compose.material3.TextButton(onClick = { scanResultText = null }) { Text("关闭") }
                 }
             )
         }

@@ -31,8 +31,8 @@ class QwenHandshake(
     /** 上行发送 JSON 文本给眼镜（线程安全） */
     private val send: suspend (String) -> Unit,
     private val deviceSn: String = QwenConstants.DEVICE_SN,
-    /** 宽容模式：超时未收到 attach_success 仍置 READY（默认 true，给固件差异留余地） */
-    private val tolerateAttachTimeout: Boolean = true,
+    /** 严谨模式：超时未收到 attach_success 直接标 FAILED，严禁自欺欺人假就绪 */
+    private val tolerateAttachTimeout: Boolean = false,
 ) {
 
     private val _state = MutableStateFlow(HandshakeState.IDLE)
