@@ -167,7 +167,7 @@ class DebugBridge(
 
     @SuppressLint("MissingPermission")
     private fun handleListenRfcomm(intent: Intent) {
-        val uuidStr = intent.getStringExtra("uuid") ?: QwenConstants.SPP_UUID.toString()
+        val uuidStr = intent.getStringExtra("uuid") ?: QwenConstants.UUID_OFFICIAL_BIND.toString()
         val insecure = intent.getBooleanExtra("insecure", true)
         val name = intent.getStringExtra("name") ?: "QwenSecondaryAudio"
 

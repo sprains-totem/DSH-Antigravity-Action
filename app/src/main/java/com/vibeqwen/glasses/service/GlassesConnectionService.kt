@@ -148,10 +148,10 @@ class GlassesConnectionService : Service() {
     override fun onDestroy() {
         debugBridge?.unregister()
         debugBridge = null
-        disconnectAll()
+        instance = null
+        disconnectAllInternal()
         releaseWakeLock()
         scope.cancelScope()
-        instance = null
         super.onDestroy()
     }
 
@@ -171,15 +171,6 @@ class GlassesConnectionService : Service() {
             ACTION_STOP_RECORD -> stopRecording()
         }
         return START_NOT_STICKY
-    }
-
-    @SuppressLint("MissingPermission")
-    override fun onDestroy() {
-        instance = null
-        disconnectAllInternal()
-        releaseWakeLock()
-        scope.cancelScope()
-        super.onDestroy()
     }
 
     // ── 连接 ──
