@@ -75,7 +75,7 @@ class GcspFrameReassembler(
 
     private fun isAudioMagic(offset: Int): Boolean {
         if (buffer.size < offset + 8) return false
-        val magic = QwenConstants.AUDIO_FRAME_MAGIC
+        val magic = QwenConstants.AUDIO_MAGIC
         for (i in 0 until 8) {
             if (buffer[offset + i] != magic[i]) return false
         }
