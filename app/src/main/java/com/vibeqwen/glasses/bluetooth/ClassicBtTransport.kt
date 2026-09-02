@@ -153,6 +153,7 @@ class ClassicBtTransport(
     }
 
     private fun startReadLoop(sock: BluetoothSocket, isAudio: Boolean) {
+        val label = if (isAudio) "audio" else "control"
         val thread = Thread({
             val input = try { sock.inputStream } catch (e: IOException) { return@Thread }
             val buf = ByteArray(4096)
@@ -161,6 +162,7 @@ class ClassicBtTransport(
                     val n = input.read(buf)
                     if (n <= 0) break
                     val chunk = buf.copyOf(n)
+                    com.vibeqwen.glasses.util.LogCollector.log("IO", "[$label] 收到 ${n}B: " + chunk.take(24).joinToString("") { "%02X".format(it) })
                     if (isAudio) {
                         listener?.onAudioData(chunk)
                     } else {
