@@ -42,13 +42,17 @@ jobs:
       - name: Assemble release APK (installable, fixed-keystore signed)
         run: ./gradlew assembleRelease --no-daemon
 
+      - name: Prepare named APKs with full version name
+        run: |
+          mkdir -p release-apks
+          cp app/build/outputs/apk/release/app-release.apk release-apks/vibeQwenGlasses-v1.0.0-${{ github.run_number }}-release.apk
+          cp app/build/outputs/apk/debug/app-debug.apk release-apks/vibeQwenGlasses-v1.0.0-${{ github.run_number }}-debug.apk
+
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: vibeQwenGlasses-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+          path: release-apks/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -59,13 +63,11 @@ jobs:
           tag_name: v1.0.0-${{ github.run_number }}
           name: vibeQwenGlasses v1.0.0-${{ github.run_number }}
           body: |
-            ## vibeQwenGlasses — 千问 G1 眼镜录音 APP
+            ## vibeQwenGlasses v1.0.0-${{ github.run_number }} — 千问 G1 眼镜录音 APP
 
-            - **app-release.apk**：release 构建（可安装）
-            - **app-debug.apk**：debug 构建（可安装）
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+            - **`vibeQwenGlasses-v1.0.0-${{ github.run_number }}-release.apk`**：Release 构建（固定 Keystore 签名，支持直接覆盖安装升级）
+            - **`vibeQwenGlasses-v1.0.0-${{ github.run_number }}-debug.apk`**：Debug 调试构建
+          files: release-apks/*.apk
           draft: false
           prerelease: false
         env:
