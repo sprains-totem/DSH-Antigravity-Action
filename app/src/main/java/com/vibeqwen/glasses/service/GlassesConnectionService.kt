@@ -204,40 +204,43 @@ class GlassesConnectionService : Service() {
         updateNotification()
         com.vibeqwen.glasses.protocol.QwenFramer.resetSeq()
 
-        // 1. 发送 GCSP 版本协商请求 (08 00 00 00 05 47 43 00 01 02)
-        val negReq = com.vibeqwen.glasses.protocol.QwenFramer.versionNegFrame(2)
-        com.vibeqwen.glasses.util.LogCollector.h("发送 GCSP 版本协商请求(0x0001): " + negReq.joinToString("") { "%02X".format(it) })
-        transport?.write(negReq)
+        scope.launch {
+            // 1. 发送 GCSP 版本协商请求 (08 00 00 00 05 47 43 00 01 02)
+            val negReq = com.vibeqwen.glasses.protocol.QwenFramer.versionNegFrame(2)
+            com.vibeqwen.glasses.util.LogCollector.h("发送 GCSP 版本协商请求: " + negReq.joinToString("") { "%02X".format(it) })
+            transport?.write(negReq)
+            delay(1000)
 
-        // 2. 发送 node 初始化帧 (官方 10B 帧头 + CRC16 封装)
-        com.vibeqwen.glasses.util.LogCollector.h("发送 node 初始化...")
-        transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.nodeInitFrame())
+            // 2. 发送 node 初始化帧 (官方 10B 帧头 + CRC16 封装)
+            com.vibeqwen.glasses.util.LogCollector.h("发送 node 初始化...")
+            transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.nodeInitFrame())
+            delay(300)
 
-        handshake = QwenHandshake(
-            scope = scope,
-            send = { text ->
-                // 官方 APP GCSP 帧封装（10B 头 + JSON + CRC16）
-                com.vibeqwen.glasses.util.LogCollector.h("←发送(GCSP帧): ${text.take(120)}")
-                transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.wrapJson(text))
-            },
-        ).also { h ->
-            h.onReady = {
-                com.vibeqwen.glasses.util.LogCollector.c("握手完成 → READY")
-                publish { st -> st.copy(connection = ConnectionState.READY, message = "已就绪，可开始录音") }
-                updateNotification()
-                // 尝试打开音频第二通道（HFP/HSP）；失败不影响控制通道
-                scope.launch {
-                    transport?.openAudioChannel(transportListener)
+            // 3. 启动握手状态机
+            handshake = QwenHandshake(
+                scope = scope,
+                send = { text ->
+                    com.vibeqwen.glasses.util.LogCollector.h("←发送(GCSP帧): ${text.take(120)}")
+                    transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.wrapJson(text))
+                },
+            ).also { h ->
+                h.onReady = {
+                    com.vibeqwen.glasses.util.LogCollector.c("握手完成 → READY")
+                    publish { st -> st.copy(connection = ConnectionState.READY, message = "已就绪，可开始录音") }
+                    updateNotification()
+                    scope.launch {
+                        transport?.openAudioChannel(transportListener)
+                    }
                 }
-            }
-            h.onError = { err ->
-                com.vibeqwen.glasses.util.LogCollector.e("握手失败: $err")
-                publish {
-                    it.copy(connection = ConnectionState.ERROR, lastError = err, message = "握手失败：$err")
+                h.onError = { err ->
+                    com.vibeqwen.glasses.util.LogCollector.e("握手失败: $err")
+                    publish {
+                        it.copy(connection = ConnectionState.ERROR, lastError = err, message = "握手失败：$err")
+                    }
+                    updateNotification()
                 }
-                updateNotification()
+                h.start()
             }
-            h.start()
         }
     }
 
