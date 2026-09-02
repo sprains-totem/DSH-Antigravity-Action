@@ -19,11 +19,11 @@ class WavWriter(
     private val channels: Int = 1,
     private val bitsPerSample: Int = 16,
 ) {
-    private val out = BufferedOutputStream(FileOutputStream(file))
-    private var pcmBytes = 0L
-    private var closed = false
+    private val out: BufferedOutputStream
 
     init {
+        file.parentFile?.mkdirs()
+        out = BufferedOutputStream(FileOutputStream(file))
         writeHeaderPlaceholder()
     }
 

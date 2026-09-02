@@ -113,7 +113,9 @@ class AudioPipeline(
 
     private fun openNextSlice(atMs: Long) {
         sliceStartMs = atMs
+        if (!outputDir.exists()) outputDir.mkdirs()
         val wavFile = File(outputDir, sliceFileName("wav"))
+        com.vibeqwen.glasses.util.LogCollector.r("创建切片音频文件: ${wavFile.absolutePath}")
         currentWriter = WavWriter(wavFile)
         if (aacEnabled) {
             val m4aFile = File(outputDir, sliceFileName("m4a"))
