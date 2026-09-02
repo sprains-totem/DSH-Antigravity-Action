@@ -20,6 +20,8 @@ class WavWriter(
     private val bitsPerSample: Int = 16,
 ) {
     private val out: BufferedOutputStream
+    private var pcmBytes = 0L
+    private var closed = false
 
     init {
         file.parentFile?.mkdirs()
