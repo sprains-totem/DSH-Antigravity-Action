@@ -95,11 +95,29 @@ class GlassesConnectionService : Service() {
         fun service(): GlassesConnectionService = this@GlassesConnectionService
     }
 
-    /** 控制通道解复用：JSON 文本 → 事件；非 JSON → 帧解析 */
-    private val demuxer = JsonStreamAssembler(
+    /** 控制与数据通道解复用器：处理分包/粘包并重组 GCSP 帧 */
+    private val demuxer = com.vibeqwen.glasses.protocol.GcspFrameReassembler(
         onJson = { handleControlJson(it) },
-        onNonJson = { handleRawBytes(it) },
+        onGmaCommand = { cid, bytes -> handleGmaCommand(cid, bytes) },
+        onAudioFrame = { handleRawBytes(it) },
+        onGcspControl = { handleGcspControl(it) },
     )
+
+    private fun handleGmaCommand(cid: Int, bytes: ByteArray) {
+        val ack = com.vibeqwen.glasses.protocol.GmaProtocolHandler.handleIncomingBytes(bytes)
+        if (ack != null) {
+            com.vibeqwen.glasses.util.LogCollector.h("←自动回复眼镜 GMA ACK (" + ack.size + "B)")
+            transport?.write(ack)
+        }
+    }
+
+    private fun handleGcspControl(bytes: ByteArray) {
+        val ack = com.vibeqwen.glasses.protocol.GmaProtocolHandler.handleIncomingBytes(bytes)
+        if (ack != null) {
+            com.vibeqwen.glasses.util.LogCollector.h("←回复 GCSP 控制帧 (" + ack.size + "B)")
+            transport?.write(ack)
+        }
+    }
 
     private val transportListener = object : ClassicBtTransport.Listener {
         override fun onControlData(bytes: ByteArray) = demuxer.feed(bytes)
