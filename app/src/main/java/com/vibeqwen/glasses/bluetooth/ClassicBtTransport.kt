@@ -121,7 +121,12 @@ class ClassicBtTransport(
                 try { sock.close() } catch (_: IOException) { }
             }
         }
-        listener?.onError("[$label] $lastError")
+        // 只有控制通道失败才上报致命错误；音频第二通道是可选通道，失败不影响主会话
+        if (label == "control") {
+            listener?.onError("[$label] $lastError")
+        } else {
+            Log.w(tag, "[$label] 可选音频通道建立跳过/失败: $lastError")
+        }
         return null
     }
 

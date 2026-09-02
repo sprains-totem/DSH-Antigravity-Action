@@ -285,11 +285,12 @@ class GlassesConnectionService : Service() {
             p.start(recordStartMs)
         }
 
-        // 下发 3 条开始指令
+        // 下发 3 条开始指令（官方 10 字节私有帧封装）
         val cmds = QwenCommands.startRecord()
         scope.launch {
             for (c in cmds) {
-                transport?.write(c.toByteArray(Charsets.UTF_8))
+                com.vibeqwen.glasses.util.LogCollector.r("←下发录音指令: $c")
+                transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.wrapJson(c))
                 delay(150)
             }
         }
@@ -304,11 +305,12 @@ class GlassesConnectionService : Service() {
     private fun stopRecording() {
         if (!recording) return
         finalizeRecording("用户停止")
-        // 下发停止指令
+        // 下发停止指令（官方 10 字节私有帧封装）
         val cmds = QwenCommands.stopRecord()
         scope.launch {
             for (c in cmds) {
-                transport?.write(c.toByteArray(Charsets.UTF_8))
+                com.vibeqwen.glasses.util.LogCollector.r("←下发停止指令: $c")
+                transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.wrapJson(c))
                 delay(120)
             }
         }
