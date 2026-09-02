@@ -258,6 +258,15 @@ class GlassesConnectionService : Service() {
 
     private fun handleRawBytes(bytes: ByteArray) {
         com.vibeqwen.glasses.util.LogCollector.log("PROTO", "收到非JSON原始字节: ${bytes.size}B " + bytes.take(24).joinToString("") { "%02X".format(it) })
+
+        // 1. 检查并处理 GMA / GCSP 协议帧，如果需要自动应答则回包
+        val ack = com.vibeqwen.glasses.protocol.GmaProtocolHandler.handleIncomingBytes(bytes)
+        if (ack != null) {
+            com.vibeqwen.glasses.util.LogCollector.h("←自动回复眼镜 GMA ACK (" + ack.size + "B)")
+            transport?.write(ack)
+        }
+
+        // 2. 检查并提取音频帧
         val frames = frameParser.feed(bytes)
         if (frames.isEmpty()) return
         for (frame in frames) {
