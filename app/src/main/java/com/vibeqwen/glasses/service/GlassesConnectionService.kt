@@ -86,11 +86,14 @@ class GlassesConnectionService : Service() {
     private var handshake: QwenHandshake? = null
     private var pipeline: AudioPipeline? = null
     private var scoRecorder: com.vibeqwen.glasses.audio.ScoAudioRecorder? = null
+    private var debugBridge: com.vibeqwen.glasses.debug.DebugBridge? = null
     private var frameParser = QwenFrameParser()
     private var wakeLock: PowerManager.WakeLock? = null
     private var tickerJob: Job? = null
     private var recording = false
     private var recordStartMs = 0L
+
+    fun transport(): ClassicBtTransport? = transport
 
     private val localBinder = object : Binder() {
         fun service(): GlassesConnectionService = this@GlassesConnectionService
@@ -139,6 +142,17 @@ class GlassesConnectionService : Service() {
         com.vibeqwen.glasses.util.LogCollector.init(applicationContext)
         createNotificationChannel()
         acquireWakeLock()
+        debugBridge = com.vibeqwen.glasses.debug.DebugBridge(this, this, scope).also { it.register() }
+    }
+
+    override fun onDestroy() {
+        debugBridge?.unregister()
+        debugBridge = null
+        disconnectAll()
+        releaseWakeLock()
+        scope.cancelScope()
+        instance = null
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder = localBinder
