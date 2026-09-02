@@ -10,15 +10,30 @@ android {
     namespace = "com.vibeqwen.glasses"
     compileSdk = 34
 
+    val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 100
+
     defaultConfig {
         applicationId = "com.vibeqwen.glasses"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-m1"
+        versionCode = ciRunNumber
+        versionName = "1.0.0-$ciRunNumber"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("keystore/release.keystore")
+            storePassword = "vibeqwen_pass"
+            keyAlias = "vibeqwen"
+            keyPassword = "vibeqwen_pass"
+        }
     }
 
     buildTypes {
+        debug {
+            // debug 也统一使用固定 keystore 签名，保证与 release 及历史版本签名 100% 一致
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             // minify 关闭，避免混淆带来额外风险（MVP）
             isMinifyEnabled = false
@@ -26,8 +41,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 用 debug keystore 签名 release，保证 CI 产物可直接安装
-            signingConfig = signingConfigs.getByName("debug")
+            // 固定 keystore 签名：避免 CI 每次生成不同 debug 证书导致覆盖安装签名冲突
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

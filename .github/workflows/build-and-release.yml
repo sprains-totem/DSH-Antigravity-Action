@@ -39,7 +39,7 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Assemble release APK (instalable, debug-keystore signed)
+      - name: Assemble release APK (installable, fixed-keystore signed)
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APKs
