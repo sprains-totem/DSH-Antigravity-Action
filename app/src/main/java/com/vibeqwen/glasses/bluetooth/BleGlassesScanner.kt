@@ -48,8 +48,14 @@ class BleGlassesScanner(private val context: Context) {
                 val adv = result.scanRecord?.bytes ?: ByteArray(0)
                 LogCollector.log("BLE", "扫描到: ${device.address} rssi=${result.rssi} adv=${adv.size}B")
                 try {
-                    result.scanRecord?.manufacturerSpecificData?.forEach { (mfrId, data) ->
-                        LogCollector.log("BLE", "  mfr=$mfrId data=${data.joinToString("") { "%02X".format(it) }}")
+                    // manufacturerSpecificData 是 SparseArray<ByteArray>，用索引遍历
+                    val mfrData = result.scanRecord?.manufacturerSpecificData
+                    if (mfrData != null) {
+                        for (i in 0 until mfrData.size()) {
+                            val mfrId = mfrData.keyAt(i)
+                            val data = mfrData.valueAt(i)
+                            LogCollector.log("BLE", "  mfr=$mfrId data=${data.joinToString("") { "%02X".format(it) }}")
+                        }
                     }
                 } catch (_: Exception) {
                 }

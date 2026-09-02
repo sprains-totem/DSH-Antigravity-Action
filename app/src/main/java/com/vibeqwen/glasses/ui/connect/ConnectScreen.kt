@@ -95,18 +95,20 @@ fun ConnectScreen(
         // 方案三：读取官方APP的BLE密钥（Shizuku 授权 / root 兜底）
         OutlinedButton(
             onClick = {
-                val reader = com.vibeqwen.glasses.util.ShizukuKeyReader
-                if (!reader.isShizukuAvailable() && !reader.hasRoot()) {
+                val available = com.vibeqwen.glasses.util.ShizukuKeyReader.isShizukuAvailable()
+                val granted = com.vibeqwen.glasses.util.ShizukuKeyReader.isGranted()
+                val root = com.vibeqwen.glasses.util.ShizukuKeyReader.hasRoot()
+                if (!available && !root) {
                     rfShowKeyResult = "Shizuku 未启动 / 无 root。\n请先启动 Shizuku（moe.shizuku.privileged.api）后重试。"
-                } else if (reader.isShizukuAvailable() && !reader.isGranted()) {
-                    val ok = reader.requestPermission()
+                } else if (available && !granted) {
+                    val ok = com.vibeqwen.glasses.util.ShizukuKeyReader.requestPermission()
                     rfShowKeyResult = if (ok) {
                         "已发起 Shizuku 授权请求。\n请在系统弹窗中允许，然后再次点击「读取官方密钥」。"
                     } else {
                         "Shizuku 授权请求失败，请手动在 Shizuku 中授权本应用。"
                     }
                 } else {
-                    rfShowKeyResult = reader.readOfficialBleKey()
+                    rfShowKeyResult = com.vibeqwen.glasses.util.ShizukuKeyReader.readOfficialBleKey()
                 }
             },
             modifier = Modifier.fillMaxWidth()
