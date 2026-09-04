@@ -153,6 +153,16 @@ function walkAndPatch(rootDir) {
               search: 'isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)',
               replace: 'isLoopback: true /* UNLOCKED */',
             },
+            {
+              name: 'unlock isAuthenticated',
+              search: 'isAuthenticated(request) {',
+              replace: 'isAuthenticated(request) { return true; /* UNLOCKED */',
+            },
+            {
+              name: 'unlock authorizeIndex',
+              search: 'authorizeIndex(req, res) {',
+              replace: 'authorizeIndex(req, res) { return true; /* UNLOCKED */',
+            },
           ]);
         }
 

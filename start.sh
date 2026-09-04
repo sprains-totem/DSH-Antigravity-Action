@@ -343,11 +343,13 @@ probe_dsh_health() {
       return 1
     fi
 
-    if curl -fsS -m 2 "http://127.0.0.1:${DSH_PORT}/" >/dev/null 2>&1; then
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${DSH_PORT}/" 2>/dev/null || echo "000")
+    if [ "$http_code" = "200" ] || [ "$http_code" = "302" ] || [ "$http_code" = "303" ] || [ "$http_code" = "401" ]; then
       http_ready=true
       sleep 2
       if kill -0 "$pid" 2>/dev/null && ! grep -Ei "ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError:" "$log_file" 2>/dev/null; then
-        log_guardian "✅ [探针] Web 服务 (Port ${DSH_PORT}) HTTP 响应正常，且无致命异常日志。"
+        log_guardian "✅ [探针] Web 服务 (Port ${DSH_PORT}) HTTP 响应正常 (HTTP $http_code)，且无致命异常日志。"
         return 0
       fi
     fi
