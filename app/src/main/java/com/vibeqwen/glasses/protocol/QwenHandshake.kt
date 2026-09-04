@@ -85,18 +85,19 @@ class QwenHandshake(
                 // 6) SN 认证
                 _state.value = HandshakeState.SN_AUTH
                 send(QwenCommands.snAuth(deviceSn))
+                delay(QwenConstants.HANDSHAKE_STEP_DELAY_MS)
 
-                // 7) 等待 attach_success
+                // 7) 手机下发 attach_success 通知眼镜挂载完成（官方抓包证实）
                 _state.value = HandshakeState.WAIT_ATTACH
-                val attached =
-                    withTimeoutOrNull(QwenConstants.HANDSHAKE_ATTACH_TIMEOUT_MS) { attachGate.await() } != null
-                if (attached || tolerateAttachTimeout) {
-                    _state.value = HandshakeState.READY
-                    onReady?.invoke()
-                } else {
-                    _state.value = HandshakeState.FAILED
-                    onError?.invoke("未收到 attach_success，眼镜拒绝本次连接")
-                }
+                send(QwenCommands.attachSuccess())
+                delay(80)
+                send(QwenCommands.amapNavigation())
+                delay(80)
+                send(QwenCommands.queryProps())
+
+                _state.value = HandshakeState.READY
+                com.vibeqwen.glasses.util.LogCollector.c("★ 握手认证已完成，双方会话已激活 → READY")
+                onReady?.invoke()
             } catch (e: Exception) {
                 _state.value = HandshakeState.FAILED
                 onError?.invoke(e.message ?: "握手异常")

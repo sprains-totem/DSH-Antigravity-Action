@@ -35,6 +35,15 @@ class GcspFrameReassembler(
                 continue
             }
 
+            // 1.5 检查裸 GMA SDU 命令帧（[0..1] 是 CID 0x0001, [2..3] 是 CmdId 0x2009）
+            val first2 = (buffer[0].toInt() and 0xFF) or ((buffer[1].toInt() and 0xFF) shl 8)
+            if (first2 == 0x0001 && buffer.size >= 12 && buffer[2] == 0x09.toByte() && buffer[3] == 0x20.toByte()) {
+                val frameBytes = ByteArray(12) { buffer[it] }
+                buffer.subList(0, 12).clear()
+                onGmaCommand(1, frameBytes)
+                continue
+            }
+
             // 2. 检查 GCSP 帧结构：[0..1] LE 长度-2, [2..3] LE CID
             val declaredLen = (buffer[0].toInt() and 0xFF) or ((buffer[1].toInt() and 0xFF) shl 8)
             val cid = (buffer[2].toInt() and 0xFF) or ((buffer[3].toInt() and 0xFF) shl 8)

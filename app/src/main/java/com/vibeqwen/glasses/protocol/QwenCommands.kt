@@ -74,6 +74,12 @@ object QwenCommands {
         put("data", sn)
     }.toString()
 
+    /** 手机通知眼镜挂载成功：{"code":1,"msg":"attach_success"}（官方抓包证实由手机发给眼镜） */
+    fun attachSuccess(): String = """{"code":1,"msg":"attach_success"}"""
+
+    /** 高德导航支持声明 */
+    fun amapNavigation(): String = """{"code":"Amap-Navigation"}"""
+
     // ── 录音控制 ──
 
     /**
