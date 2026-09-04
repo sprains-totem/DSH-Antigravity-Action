@@ -93,9 +93,11 @@ init_env() {
   global_nm="$(get_global_node_modules)"
   sudo chown -R "$(whoami)" "$global_nm" /usr/local/lib/node_modules /usr/lib/node_modules 2>/dev/null || true
 
-  if ! command -v dsh &> /dev/null; then
-    echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh)..."
-    sudo npm install -g @deepseek-ai/dsh esbuild preact marked
+  local dsh_ver
+  dsh_ver="$(dsh --version 2>/dev/null || true)"
+  if ! command -v dsh &> /dev/null || [ "$dsh_ver" != "0.1.1-rc.2" ]; then
+    echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh@0.1.1-rc.2)..."
+    sudo npm install -g @deepseek-ai/dsh@0.1.1-rc.2 @deepseek-ai/dsh-settings@0.1.1-rc.2 @deepseek-ai/dsh-llm@0.1.1-rc.2 esbuild preact marked
     sudo chown -R "$(whoami)" "$global_nm" /usr/local/lib/node_modules /usr/lib/node_modules 2>/dev/null || true
   fi
 
@@ -201,6 +203,14 @@ deploy_plugins() {
   fi
 
   if [ -d "$global_nm" ]; then
+    if [ -d "$global_nm/@deepseek-ai" ]; then
+      mkdir -p "$PROFILE_WEB_DIR/node_modules/@deepseek-ai"
+      for mod in "$global_nm/@deepseek-ai"/*; do
+        [ -d "$mod" ] || continue
+        [ -e "$PROFILE_WEB_DIR/node_modules/@deepseek-ai/$(basename "$mod")" ] || \
+          ln -sfn "$mod" "$PROFILE_WEB_DIR/node_modules/@deepseek-ai/$(basename "$mod")" 2>/dev/null || true
+      done
+    fi
     for mod in "$global_nm"/*; do
       [ -d "$mod" ] || continue
       [ "$(basename "$mod")" = "@deepseek-ai" ] && continue
