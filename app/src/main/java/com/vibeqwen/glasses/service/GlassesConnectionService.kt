@@ -214,13 +214,25 @@ class GlassesConnectionService : Service() {
         com.vibeqwen.glasses.protocol.QwenFramer.resetSeq()
 
         scope.launch {
-            // 1. 发送 GCSP 版本协商请求 (08 00 00 00 05 47 43 00 01 02)
-            val negReq = com.vibeqwen.glasses.protocol.QwenFramer.versionNegFrame(2)
+            // 1. 发送 GCSP 版本协商请求 (08 00 00 00 05 47 43 00 00 01)
+            val negReq = com.vibeqwen.glasses.protocol.QwenFramer.versionNegFrame(1)
             com.vibeqwen.glasses.util.LogCollector.h("发送 GCSP 版本协商请求: " + negReq.joinToString("") { "%02X".format(it) })
             transport?.write(negReq)
-            delay(1000)
+            delay(200)
 
-            // 2. 发送 node 初始化帧 (官方 10B 帧头 + CRC16 封装)
+            // 2. 发送 GMA 0x14 鉴权挑战帧
+            val randomA = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+            val authPayload = ByteArray(26).apply {
+                this[0] = 0x18; this[1] = 0x00; this[2] = 0x01; this[3] = 0x00
+                this[4] = 0x15; this[5] = 0x00; this[6] = 0x00; this[7] = 0x00; this[8] = 0x00
+                this[9] = 0x14
+                System.arraycopy(randomA, 0, this, 10, 16)
+            }
+            com.vibeqwen.glasses.util.LogCollector.h("发送 GMA 0x14 挑战: " + authPayload.joinToString("") { "%02X".format(it) })
+            transport?.write(authPayload)
+            delay(300)
+
+            // 3. 发送 node 初始化帧 (官方 10B 帧头 + CRC16 封装)
             com.vibeqwen.glasses.util.LogCollector.h("发送 node 初始化...")
             transport?.write(com.vibeqwen.glasses.protocol.QwenFramer.nodeInitFrame())
             delay(300)

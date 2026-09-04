@@ -83,16 +83,19 @@ object QwenCommands {
     // ── 录音控制 ──
 
     /**
-     * 开始录音：返回 3 条顺序发送的 JSON。
-     * sessionId = 毫秒时间戳前 10 位；taskLinkId = "AudioRecording" + 时间戳 + 32 位大写 HEX；
+     * 开始录音：返回 6 条顺序发送的完整 GMA / GCSP 控制帧。
+     * sessionId = 整型时间戳前 8 位；taskLinkId = "AudioRecording" + 时间戳 + 32 位大写 HEX；
      * wakeupType = longRecord；reason = touch。
      */
     fun startRecord(): List<String> {
         val ts = System.currentTimeMillis()
-        val sessionId = ts.toString().take(10)
+        val sessionId = (ts / 1000).toInt()
         val taskLinkId = "AudioRecording$ts${randomHex32()}"
+        val traceId = "212bd951${ts}6886d0faf"
+        val dialogId = "44354137344330345f313538343930313134353939363435383135335f7ffffe5f96325f5d"
         val dataReason = buildJsonObject { put("reason", "touch") }
 
+        // 1. AudioRecording 业务请求
         val j1 = buildJsonObject {
             put("code", "AudioRecording")
             put("data", dataReason)
@@ -103,30 +106,88 @@ object QwenCommands {
                 }
             )
             put("sessionId", sessionId)
+            put("traceId", traceId)
         }.toString()
 
+        // 2. AudioRecording 场景激活
         val j2 = buildJsonObject {
             put("data", dataReason)
             put("scene", "AudioRecording")
             put("sessionId", sessionId)
             put("taskLinkId", taskLinkId)
+            put("traceId", traceId)
             put("wakeupType", "longRecord")
         }.toString()
 
+        // 3. AI Record 页面跳转协议
         val j3 = buildJsonObject {
-            put("data", dataReason)
+            put("data", buildJsonObject {
+                put("dialogId", dialogId)
+                put("reason", "touch")
+            })
             put("pageType", "SCHEME_AIRECORD_START")
             put("sessionId", sessionId)
+            put("traceId", traceId)
             put("uri", "airecord://start")
         }.toString()
 
-        return listOf(j1, j2, j3)
+        // 4. 底层推流通道建立确认（type:4, arg1=sessionId, arg2=0）
+        val j4 = buildJsonObject {
+            put("type", 4)
+            put("arg1", sessionId)
+            put("arg2", 0)
+        }.toString()
+
+        // 5. 状态同步切入 Running
+        val j5 = buildJsonObject {
+            put("code", "AudioRecording")
+            put("traceId", traceId)
+            put("status", "Running")
+            put("reason", "CLOUD")
+            put("reasonStop", null as String?)
+            put("hint", "")
+            put("context", buildJsonObject {
+                put("taskLinkId", taskLinkId)
+                put("scene", "AudioRecording")
+                put("sessionId", sessionId)
+            }.toString())
+        }.toString()
+
+        // 6. 音频通道格式声明 (.ogg / sceneContexts)
+        val j6 = buildJsonObject {
+            put("format", ".ogg")
+            put("sceneContexts", buildJsonObject {
+                put("taskLinkId", taskLinkId)
+                put("scene", "AudioRecording")
+            })
+            put("eventContext", buildJsonObject {
+                put("taskLayer", buildJsonObject {
+                    put("current", buildJsonObject {
+                        put("code", "AudioRecording")
+                        put("context", buildJsonObject {
+                            put("taskLinkId", taskLinkId)
+                            put("scene", "AudioRecording")
+                            put("sessionId", sessionId)
+                        })
+                        put("reason", "CLOUD")
+                    })
+                    put("background", buildJsonArray {})
+                })
+            })
+        }.toString()
+
+        return listOf(j1, j2, j3, j4, j5, j6)
     }
 
-    /** 停止录音：PART + code 两条 JSON */
-    fun stopRecord(): List<String> = listOf(
+    /** 停止录音：PART + code + type:4 停止确认 */
+    fun stopRecord(sessionId: Int = 0): List<String> = listOf(
         """{"type":"PART","codeList":["AudioRecording"]}""",
         """{"code":"AudioRecording"}""",
+        buildJsonObject {
+            put("type", 4)
+            put("arg1", sessionId)
+            put("arg2", 1)
+        }.toString()
     )
 
     /** props 查询（握手后可选项） */

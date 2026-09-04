@@ -50,10 +50,10 @@ object QwenFramer {
         return crc and 0xFFFF
     }
 
-    /** 生成 GCSP 版本协商请求帧 (10 字节) */
-    fun versionNegFrame(maxVersion: Int = 2): ByteArray {
+    /** 生成 GCSP 版本协商请求帧 (10 字节，官方抓包严格一致) */
+    fun versionNegFrame(maxVersion: Int = 1): ByteArray {
         return byteArrayOf(
-            0x08, 0x00, 0x00, 0x00, 0x05, 0x47, 0x43, 0x00, 0x01, maxVersion.toByte()
+            0x08, 0x00, 0x00, 0x00, 0x05, 0x47, 0x43, 0x00, 0x00, 0x01
         )
     }
 

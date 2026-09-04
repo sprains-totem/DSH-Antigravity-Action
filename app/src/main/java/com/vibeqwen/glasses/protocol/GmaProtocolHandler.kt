@@ -24,6 +24,30 @@ object GmaProtocolHandler {
         val hex = bytes.take(32).joinToString("") { "%02X".format(it) }
         LogCollector.log("GMA", "收到原始包 (${bytes.size}B): $hex")
 
+        // 0. GMA 0x15: 设备返回 HMAC 与 RandomB -> 自动回发 0x16 鉴权确认
+        if (bytes.size >= 58 && (bytes[9].toInt() and 0xFF) == 0x15) {
+            LogCollector.h("★ 收到眼镜 0x15 设备 HMAC 响应 (48B)")
+            val deviceHmac = bytes.copyOfRange(10, 42)
+            val randomB = bytes.copyOfRange(42, 58)
+            LogCollector.h("  设备 HMAC: " + deviceHmac.take(8).joinToString("") { "%02X".format(it) } + "...")
+            LogCollector.h("  设备 RandomB: " + randomB.joinToString("") { "%02X".format(it) })
+
+            val capturedHmac = byteArrayOf(
+                0x6d.toByte(), 0x57.toByte(), 0x95.toByte(), 0xf8.toByte(), 0x67.toByte(), 0x21.toByte(), 0x1f.toByte(), 0xdd.toByte(),
+                0x43.toByte(), 0xdf.toByte(), 0xfb.toByte(), 0xb3.toByte(), 0x82.toByte(), 0x48.toByte(), 0x0e.toByte(), 0xbc.toByte(),
+                0xcc.toByte(), 0x10.toByte(), 0x88.toByte(), 0xa4.toByte(), 0x5d.toByte(), 0x37.toByte(), 0xc5.toByte(), 0x54.toByte(),
+                0xc3.toByte(), 0xac.toByte(), 0x2c.toByte(), 0x25.toByte(), 0x0f.toByte(), 0x75.toByte(), 0xf9.toByte(), 0x1e.toByte()
+            )
+            val verifyResult = ByteArray(42).apply {
+                this[0] = 0x28; this[1] = 0x00; this[2] = 0x01; this[3] = 0x00
+                this[4] = 0x25; this[5] = 0x00; this[6] = 0x00; this[7] = 0x03; this[8] = 0x00
+                this[9] = 0x16
+                System.arraycopy(capturedHmac, 0, this, 10, 32)
+            }
+            LogCollector.h("← 下发 0x16 鉴权确认包 (42B)")
+            return verifyResult
+        }
+
         // 1. GCSP 版本协商应答 (0x0002) 或 请求 (0x0001)
         if (bytes.size >= 8 && bytes.contains(0x47.toByte()) && bytes.contains(0x43.toByte())) {
             val idx = bytes.indexOf(0x47.toByte())
