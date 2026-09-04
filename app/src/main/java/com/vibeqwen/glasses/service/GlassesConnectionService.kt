@@ -85,7 +85,6 @@ class GlassesConnectionService : Service() {
     private var transport: ClassicBtTransport? = null
     private var handshake: QwenHandshake? = null
     private var pipeline: AudioPipeline? = null
-    private var scoRecorder: com.vibeqwen.glasses.audio.ScoAudioRecorder? = null
     private var debugBridge: com.vibeqwen.glasses.debug.DebugBridge? = null
     private var frameParser = QwenFrameParser()
     private var wakeLock: PowerManager.WakeLock? = null
@@ -194,8 +193,12 @@ class GlassesConnectionService : Service() {
             val t = ClassicBtTransport(device)
             val ok = t.connect(transportListener)
             if (ok) {
-                com.vibeqwen.glasses.util.LogCollector.c("传输层已连接，开始握手")
+                com.vibeqwen.glasses.util.LogCollector.c("控制通道 (L2CAP PSM 130) 已连接")
                 transport = t
+                // 并行建立经典蓝牙 RFCOMM Channel 16 高清音频推流通道
+                scope.launch {
+                    t.openAudioChannel(transportListener)
+                }
                 startHandshake()
             } else {
                 com.vibeqwen.glasses.util.LogCollector.e("传输层连接失败")
@@ -326,14 +329,7 @@ class GlassesConnectionService : Service() {
             p.start(recordStartMs)
         }
 
-        // 启动蓝牙 SCO 音频录制（HFP 16kHz 录音）
-        scoRecorder?.stop()
-        scoRecorder = com.vibeqwen.glasses.audio.ScoAudioRecorder(this) { pcm ->
-            pipeline?.writeFrame(pcm)
-            publish { it.copy(frames = it.frames + 1) }
-        }.also { it.start() }
-
-        // 如果控制通道在线，同步下发 3 条开始指令（官方 10 字节私有帧封装）
+        // 同步下发官方 3 条开始录音指令（触发眼镜硬件启动麦克风推流）
         val cmds = QwenCommands.startRecord()
         scope.launch {
             for (c in cmds) {
@@ -368,8 +364,6 @@ class GlassesConnectionService : Service() {
     private fun finalizeRecording(reason: String) {
         if (!recording) return
         recording = false
-        scoRecorder?.stop()
-        scoRecorder = null
         tickerJob?.cancel()
         tickerJob = null
         pipeline?.stop()

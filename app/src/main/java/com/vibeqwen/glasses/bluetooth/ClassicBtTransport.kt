@@ -89,14 +89,33 @@ class ClassicBtTransport(
         return connectWithCandidates(controlCandidates, "control")
     }
 
-    /** 建立音频第二通道（阻塞；后台线程调用；失败仅告警不致命） */
+    /** 建立音频第二通道（官方抓包证实走经典蓝牙 RFCOMM Channel 16） */
     fun openAudioChannel(listener: Listener): Boolean {
         this.listener = listener
-        val sock = connectWithCandidates(audioCandidates, "audio")
+        // 1. 优先直连官方抓包验证的经典蓝牙 RFCOMM Channel 16
+        val sock = tryConnectRfcommChannel(QwenConstants.RFCOMM_AUDIO_CHANNEL)
+            ?: connectWithCandidates(audioCandidates, "audio")
         if (sock == null) return false
         audioSocket = sock
         startReadLoop(sock, isAudio = true)
         return true
+    }
+
+    private fun tryConnectRfcommChannel(channel: Int): BluetoothSocket? {
+        for (methodName in listOf("createInsecureRfcommSocket", "createRfcommSocket")) {
+            if (cancelled) return null
+            try {
+                val method = device.javaClass.getMethod(methodName, Int::class.javaPrimitiveType)
+                val s = method.invoke(device, channel) as BluetoothSocket
+                s.connect()
+                Log.i(tag, "[audio] $methodName($channel) 连接成功！")
+                com.vibeqwen.glasses.util.LogCollector.log("CONN", "★ 经典蓝牙私有音频推流通道 (RFCOMM $channel) 建立成功！")
+                return s
+            } catch (e: Exception) {
+                Log.w(tag, "[audio] $methodName($channel) 尝试失败: ${e.message}")
+            }
+        }
+        return null
     }
 
     private fun connectWithCandidates(candidates: List<UUID>, label: String): BluetoothSocket? {
@@ -152,11 +171,16 @@ class ClassicBtTransport(
         audioSocket = null
     }
 
+    private val RFCOMM_CREDIT_ACK = byteArrayOf(
+        0x85.toByte(), 0xFF.toByte(), 0x01.toByte(), 0x02.toByte(), 0x6B.toByte()
+    )
+
     private fun startReadLoop(sock: BluetoothSocket, isAudio: Boolean) {
         val label = if (isAudio) "audio" else "control"
         val thread = Thread({
             val input = try { sock.inputStream } catch (e: IOException) { return@Thread }
             val buf = ByteArray(4096)
+            var frameCount = 0
             try {
                 while (!cancelled && sock.isConnected) {
                     val n = input.read(buf)
@@ -165,6 +189,13 @@ class ClassicBtTransport(
                     com.vibeqwen.glasses.util.LogCollector.log("IO", "[$label] 收到 ${n}B: " + chunk.take(24).joinToString("") { "%02X".format(it) })
                     if (isAudio) {
                         listener?.onAudioData(chunk)
+                        frameCount++
+                        if (frameCount % 2 == 0) {
+                            try {
+                                sock.outputStream.write(RFCOMM_CREDIT_ACK)
+                                sock.outputStream.flush()
+                            } catch (_: Exception) {}
+                        }
                     } else {
                         listener?.onControlData(chunk)
                     }

@@ -40,6 +40,9 @@ object QwenConstants {
     const val BITS_PER_SAMPLE = 16
 
     // ── RFCOMM / SPP 服务 UUID 候选 ──
+    /** 官方抓包实测确认：高清音频推流通道定死在经典蓝牙 RFCOMM Channel 16 (DLCI 33) */
+    const val RFCOMM_AUDIO_CHANNEL = 16
+
     // 官方千问 APP 设备绑定信息提供真实 128-bit 绑定 UUID（2026-08-30 确认）：
     //   D5A74C04-894A-4E70-C2AE-0BDC687904FE
     // 后备：BES2600 私有扩展 0x03FD（数据）/0x03F0（控制）/ 标准 SPP

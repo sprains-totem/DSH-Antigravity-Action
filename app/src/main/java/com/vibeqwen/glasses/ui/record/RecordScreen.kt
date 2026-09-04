@@ -55,11 +55,11 @@ fun RecordScreen(
         // 状态提示
         Text(
             when {
-                state.recording -> "蓝牙 SCO 录音中"
+                state.recording -> "私有通道高清录音中 (16kHz PCM)"
                 state.connection == ConnectionState.READY -> "就绪，点击开始录音"
                 state.connection == ConnectionState.CONNECTING -> "正在连接眼镜…"
                 state.connection == ConnectionState.HANDSHAKING -> "正在握手认证…"
-                state.deviceMac != null -> "蓝牙免提已连接，点击开始录音"
+                state.deviceMac != null -> "眼镜已连接，点击开始录音"
                 else -> "准备就绪，点击开始录音"
             },
             style = MaterialTheme.typography.titleMedium,
