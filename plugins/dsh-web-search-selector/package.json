@@ -15,14 +15,12 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-runtime"
+        "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/schemastery": "*"
   }
 }

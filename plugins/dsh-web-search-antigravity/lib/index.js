@@ -10,7 +10,6 @@
 // used; the sources here are raw, letting dsh-tool-web format them.
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
@@ -35,7 +34,7 @@ const Config = z.object({
 
 const name = 'web-search-antigravity'
 const inject = ['web']
-const NS = settingsNamespace('web-search-antigravity')
+const NS = 'web-search-antigravity'
 
 function randomHex(bytes) {
   let out = ''
@@ -238,11 +237,13 @@ function resolveOptions(ctx, config) {
 
 function apply(ctx, config) {
   let current = () => config
-  installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {},
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: () => {},
+    })
   })
   ctx.web.registerSearchProvider(new AntigravitySearchProvider(() => resolveOptions(ctx, current())))
 }

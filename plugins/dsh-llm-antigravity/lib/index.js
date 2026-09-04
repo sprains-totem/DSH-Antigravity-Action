@@ -1,8 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
-import {
-  CallId,
+import * as dshLlm from '@deepseek-ai/dsh-llm'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import { MAX_TIMER_DELAY_MS, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+const {
   CONTEXT_WINDOW_EXCEEDED_CODE,
   EMPTY_RESPONSE_CODE,
   LlmAdapter,
@@ -15,12 +20,17 @@ import {
   isContextWindowExceededError,
   isQuotaExceededError,
   resolveRetryPolicy,
-} from '@deepseek-ai/dsh-llm'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { MAX_TIMER_DELAY_MS, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+} = dshLlm
+const CallId = dshLlm.ToolCallId || dshLlm.CallId || ((id) => id)
+
+function deepEqualJson(a, b) {
+  if (a === b) return true
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
 
 // Antigravity (Google Cloud Code) OAuth + v1internal wire.
 // Reference: Antigravity-Manager (src-tauri/src/modules/oauth.rs, proxy/upstream/client.rs,
@@ -1719,7 +1729,7 @@ class AntigravityAdapter extends LlmAdapter {
 // ---------------------------------------------------------------------------
 const name = 'llm-antigravity'
 const inject = ['llm']
-const NS = settingsNamespace('llm-antigravity')
+const NS = 'llm-antigravity'
 const PROVIDER = 'antigravity'
 
 function resolveModels(models) {
@@ -1911,11 +1921,13 @@ function apply(ctx, config) {
     registration.replace([PROVIDER])
     registeredPolicy = policy
   }
-  installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: ensureRegistrationFacts,
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: ensureRegistrationFacts,
+    })
   })
 }
 

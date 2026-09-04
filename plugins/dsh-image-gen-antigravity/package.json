@@ -11,7 +11,6 @@
   "dependencies": {
     "@deepseek-ai/dsh-credentials": "*",
     "@deepseek-ai/dsh-tools": "*",
-    "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/schemastery": "*"
   }
 }

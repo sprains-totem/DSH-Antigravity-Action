@@ -13,11 +13,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 const name = 'web-search-selector'
 const inject = ['web']
-const NS = settingsNamespace('web-search-selector')
+const NS = 'web-search-selector'
 const PROVIDERS = ['antigravity', 'deepseek-official']
 
 function resolvePatchPath(ctx) {
@@ -55,25 +54,27 @@ const Config = z.object({
 function apply(ctx, config) {
   const patchPath = resolvePatchPath(ctx)
   let readSection = () => ({ provider: 'antigravity' })
-  installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source) => {
-      readSection = source
-    },
-    onChange: () => {
-      const section = readSection() ?? {}
-      const provider = section.provider ?? 'antigravity'
-      if (provider !== undefined && PROVIDERS.includes(provider)) {
-        const current = currentProviderFromPatch(patchPath)
-        if (current !== provider) {
-          try {
-            applyProviderToPatch(patchPath, provider)
-            ctx.logger.info(`web-search-selector: searchProvider -> ${provider} (patch reloaded via HMR)`)
-          } catch (error) {
-            ctx.logger.error('web-search-selector: failed to write patch', error)
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+      setSource: (source) => {
+        readSection = source
+      },
+      onChange: () => {
+        const section = readSection() ?? {}
+        const provider = section.provider ?? 'antigravity'
+        if (provider !== undefined && PROVIDERS.includes(provider)) {
+          const current = currentProviderFromPatch(patchPath)
+          if (current !== provider) {
+            try {
+              applyProviderToPatch(patchPath, provider)
+              ctx.logger.info(`web-search-selector: searchProvider -> ${provider} (patch reloaded via HMR)`)
+            } catch (error) {
+              ctx.logger.error('web-search-selector: failed to write patch', error)
+            }
           }
         }
-      }
-    },
+      },
+    })
   })
 }
 

@@ -165,8 +165,18 @@ function walkAndPatch(rootDir) {
               replace: '"host" /* UNLOCKED */',
             },
             {
+              name: 'unlock SettingsScopeController host (v0.1.2)',
+              search: 'ctx.remote.$host.isLoopback ? "host" : "memory"',
+              replace: '"host" /* UNLOCKED */',
+            },
+            {
               name: 'unlock SettingsScopeController host (remote fallback)',
               search: 'connection.isLoopback ? "host" : "remote"',
+              replace: '"host" /* UNLOCKED */',
+            },
+            {
+              name: 'unlock SettingsScopeController host (remote fallback v0.1.2)',
+              search: 'ctx.remote.$host.isLoopback ? "host" : "remote"',
               replace: '"host" /* UNLOCKED */',
             },
           ]);
@@ -178,6 +188,11 @@ function walkAndPatch(rootDir) {
             {
               name: 'unlock documentController host',
               search: 'connection.isLoopback ? new SettingsDocumentStore',
+              replace: 'true /* UNLOCKED */ ? new SettingsDocumentStore',
+            },
+            {
+              name: 'unlock documentController host (v0.1.2)',
+              search: 'ctx.remote.$host.isLoopback ? new SettingsDocumentStore',
               replace: 'true /* UNLOCKED */ ? new SettingsDocumentStore',
             },
           ]);
@@ -255,8 +270,8 @@ function walkAndPatch(rootDir) {
           patchFile(fullPath, [
             {
               name: 'serve /mobile SPA route in frontend-static',
-              search: '		if (target === distRoot || target === distIndex) {\n\t\t\tbody = await renderIndex();\n\t\t\ttype = HTML_MIME;\n\t\t} else {\n\t\t\tbody = await readFile(target);\n\t\t\ttype = MIME[extname(target)] ?? "application/octet-stream";\n\t\t}',
-              replace: '		if (target === distRoot || target === distIndex) {\n\t\t\tbody = await renderIndex();\n\t\t\ttype = HTML_MIME;\n\t\t} else {\n\t\t\tlet readTarget = target;\n\t\t\tif (pathname === "/mobile" || pathname === "/mobile/" || pathname.startsWith("/mobile/session/")) {\n\t\t\t\treadTarget = join(distRoot, "mobile", "index.html");\n\t\t\t}\n\t\t\tbody = await readFile(readTarget);\n\t\t\ttype = MIME[extname(readTarget)] ?? "application/octet-stream";\n\t\t}',
+              search: '		} else {\n\t\t\tbody = await readFile(target);\n\t\t\ttype = MIME[extname(target)] ?? "application/octet-stream";\n\t\t}',
+              replace: '		} else {\n\t\t\tlet readTarget = target;\n\t\t\tif (pathname === "/mobile" || pathname === "/mobile/" || pathname.startsWith("/mobile/session/")) {\n\t\t\t\treadTarget = join(distRoot, "mobile", "index.html");\n\t\t\t}\n\t\t\tbody = await readFile(readTarget);\n\t\t\ttype = MIME[extname(readTarget)] ?? "application/octet-stream";\n\t\t}',
             }
           ]);
         }

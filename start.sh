@@ -95,9 +95,9 @@ init_env() {
 
   local dsh_ver
   dsh_ver="$(dsh --version 2>/dev/null || true)"
-  if ! command -v dsh &> /dev/null || [ "$dsh_ver" != "0.1.1-rc.2" ]; then
-    echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh@0.1.1-rc.2)..."
-    sudo npm install -g @deepseek-ai/dsh@0.1.1-rc.2 @deepseek-ai/dsh-settings@0.1.1-rc.2 @deepseek-ai/dsh-llm@0.1.1-rc.2 esbuild preact marked
+  if ! command -v dsh &> /dev/null || [ "$dsh_ver" != "0.1.2-rc.1" ]; then
+    echo "正在安装全局 DeepSeek Harness (@deepseek-ai/dsh@0.1.2-rc.1)..."
+    sudo npm install -g @deepseek-ai/dsh@0.1.2-rc.1 esbuild preact marked
     sudo chown -R "$(whoami)" "$global_nm" /usr/local/lib/node_modules /usr/lib/node_modules 2>/dev/null || true
   fi
 
