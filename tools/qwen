@@ -1,0 +1,16 @@
+#!/system/bin/sh
+# vibeQwenGlasses ADB CLI 调试工具
+cmd="$1"
+if [ -z "$cmd" ]; then
+  cmd="help"
+fi
+shift
+arg="$*"
+
+if [ -n "$arg" ]; then
+  out=$(content call --uri content://com.vibeqwen.glasses.cli --method "$cmd" --arg "$arg")
+else
+  out=$(content call --uri content://com.vibeqwen.glasses.cli --method "$cmd")
+fi
+
+echo "$out" | sed 's/^Result: Bundle\[{result=//' | sed 's/}\]$//'

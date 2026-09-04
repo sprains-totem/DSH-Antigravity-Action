@@ -70,6 +70,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- ADB 调试专用的 CLI ContentProvider -->
+        <provider
+            android:name="com.vibeqwen.glasses.debug.DebugProvider"
+            android:authorities="com.vibeqwen.glasses.cli"
+            android:exported="true" />
     </application>
 
 </manifest>
