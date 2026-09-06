@@ -92,6 +92,10 @@ const DEFAULT_MODELS = [
   { id: 'gemini-3.7-flash-medium', name: 'Gemini 3.7 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'gemini-3.7-flash-low', name: 'Gemini 3.7 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'gemini-3.7-flash-tiered', name: 'Gemini 3.7 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash High', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash Medium', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.8-flash-low', name: 'Gemini 3.8 Flash Low', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
+  { id: 'gemini-3.8-flash-tiered', name: 'Gemini 3.8 Flash Tiered', contextWindow: 1_000_000, maxTokens: 65536, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'gemini-pro-agent', name: 'Gemini Pro Agent', contextWindow: 1_000_000, maxTokens: 65535, inputModalities: ['text', 'image', 'video', 'audio', 'document'] },
   { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 1_000_000, maxTokens: 64000, inputModalities: ['text', 'image', 'video'] },
   { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', contextWindow: 1_000_000, maxTokens: 64000, inputModalities: ['text', 'image', 'video'] },
@@ -885,6 +889,111 @@ class UsageTracker {
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(filePath, JSON.stringify(this.stats, null, 2), 'utf8')
     } catch {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Historical Quota Valuation Tracker (Per-Cycle Final Snapshots & Fluctuation)
+// ---------------------------------------------------------------------------
+function getValuationHistoryFilePath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE
+  if (homeDir) {
+    const dshPath = path.join(homeDir, '.dsh', 'antigravity_valuation_history.json')
+    const cwdPath = path.join(process.cwd(), 'antigravity_valuation_history.json')
+    if (fs.existsSync(dshPath)) return dshPath
+    if (fs.existsSync(cwdPath)) return cwdPath
+    return dshPath
+  }
+  return path.join(process.cwd(), 'antigravity_valuation_history.json')
+}
+
+class ValuationHistoryTracker {
+  constructor() {
+    this.data = this.load()
+  }
+
+  load() {
+    const filePath = getValuationHistoryFilePath()
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8')
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed.cycles)) return parsed
+      }
+    } catch (e) {
+      console.error('[antigravity] Failed to load valuation history:', e)
+    }
+    return { cycles: [] }
+  }
+
+  save() {
+    try {
+      const filePath = getValuationHistoryFilePath()
+      const dir = path.dirname(filePath)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(filePath, JSON.stringify(this.data, null, 2), 'utf8')
+    } catch (e) {
+      console.error('[antigravity] Failed to save valuation history:', e)
+    }
+  }
+
+  recordCycleSnapshot(snapshot) {
+    if (!snapshot || !snapshot.cycleId) {
+      throw new Error('snapshot.cycleId is required')
+    }
+    const cycleId = String(snapshot.cycleId)
+    const period = snapshot.period || '5h'
+    const resetTime = snapshot.resetTime || ''
+    const windowStart = typeof snapshot.windowStart === 'number' ? snapshot.windowStart : Date.now() - (5 * 3600 * 1000)
+    const windowEnd = typeof snapshot.windowEnd === 'number' ? snapshot.windowEnd : Date.now()
+    const updatedAt = Date.now()
+    const accounts = (snapshot.accounts && typeof snapshot.accounts === 'object') ? snapshot.accounts : {}
+
+    const entry = {
+      cycleId,
+      period,
+      resetTime,
+      windowStart,
+      windowEnd,
+      updatedAt,
+      accounts,
+      totalRequests: typeof snapshot.totalRequests === 'number' ? snapshot.totalRequests : Object.values(accounts).reduce((sum, a) => sum + (a.requests || 0), 0),
+      totalTokens: typeof snapshot.totalTokens === 'number' ? snapshot.totalTokens : Object.values(accounts).reduce((sum, a) => sum + (a.tokens || 0), 0),
+      totalUsdCost: typeof snapshot.totalUsdCost === 'number' ? snapshot.totalUsdCost : Object.values(accounts).reduce((sum, a) => sum + (a.usdCost || 0), 0),
+      estTotalValue: snapshot.estTotalValue !== undefined ? snapshot.estTotalValue : null,
+      estRemainingValue: snapshot.estRemainingValue !== undefined ? snapshot.estRemainingValue : null,
+    }
+
+    const idx = this.data.cycles.findIndex(c => c.cycleId === cycleId)
+    if (idx >= 0) {
+      // Overwrite previous estimation of this cycle with the latest estimation!
+      this.data.cycles[idx] = { ...this.data.cycles[idx], ...entry }
+    } else {
+      this.data.cycles.push(entry)
+    }
+
+    // Sort chronologically by windowEnd
+    this.data.cycles.sort((a, b) => (a.windowEnd || 0) - (b.windowEnd || 0))
+    if (this.data.cycles.length > 200) {
+      this.data.cycles = this.data.cycles.slice(-200)
+    }
+    this.save()
+    return entry
+  }
+
+  getHistory(period) {
+    if (!period || period === 'all') return this.data.cycles
+    return this.data.cycles.filter(c => c.period === period)
+  }
+
+  clear(period) {
+    if (!period || period === 'all') {
+      this.data.cycles = []
+    } else {
+      this.data.cycles = this.data.cycles.filter(c => c.period !== period)
+    }
+    this.save()
+    return true
   }
 }
 
@@ -2316,6 +2425,7 @@ function apply(ctx, config) {
 
   const usageTracker = new UsageTracker()
   const quotaService = new QuotaService()
+  const valuationHistoryTracker = new ValuationHistoryTracker()
 
   let adapter = null
 
@@ -2592,6 +2702,35 @@ function apply(ctx, config) {
             const resetTimeWeekly = url.searchParams.get('resetTimeWeekly')
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats({ resetTime5h, resetTimeWeekly, accountId }) }))
+            return
+          }
+
+          if (pathName === '/api/antigravity/valuation/history') {
+            const period = url.searchParams.get('period') || '5h'
+            if (req.method === 'DELETE') {
+              valuationHistoryTracker.clear(period)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, message: 'Valuation history cleared' }))
+              return
+            }
+            if (req.method === 'POST') {
+              let bodyStr = ''
+              req.on('data', (chunk) => { bodyStr += chunk })
+              req.on('end', () => {
+                try {
+                  const body = JSON.parse(bodyStr || '{}')
+                  const record = valuationHistoryTracker.recordCycleSnapshot(body)
+                  res.writeHead(200, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ ok: true, record, cycles: valuationHistoryTracker.getHistory(period) }))
+                } catch (e) {
+                  res.writeHead(400, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ ok: false, error: e.message || String(e) }))
+                }
+              })
+              return
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: true, cycles: valuationHistoryTracker.getHistory(period) }))
             return
           }
 

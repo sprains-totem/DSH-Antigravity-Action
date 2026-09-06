@@ -142,7 +142,26 @@
 		estRemainingValue: "Est. Remaining Value",
 		switchToAccount: "Switch",
 		currentActiveTag: "Active",
-		unassignedAccount: "Legacy / Unassigned"
+		unassignedAccount: "Legacy / Unassigned",
+
+		// Historical Quota Fluctuation & Line Chart
+		valuationHistoryTitle: "Historical Quota Fluctuation Trend",
+		valuationHistoryDesc: "Tracks the final estimation of each cycle to evaluate quota stability across accounts.",
+		metricEstTotal: "Est. Total Value ($)",
+		metricUsdCost: "Period Consumed ($)",
+		metricRemaining: "Remaining Quota (%)",
+		selectAll: "Select All",
+		deselectAll: "Clear Selection",
+		recordSnapshotBtn: "Record Cycle Snapshot",
+		recordingSnapshot: "Recording…",
+		snapshotRecordedToast: "Current cycle estimation snapshot recorded",
+		clearHistoryBtn: "Clear History",
+		confirmClearHistory: "Are you sure you want to clear historical cycle estimation records?",
+		noHistoryNotice: "No historical cycle records yet. As cycles complete or when you click Snapshot, fluctuation curves will appear here.",
+		fluctuationSummary: "Fluctuation Analysis",
+		fluctuationRange: "Range",
+		fluctuationSpan: "Span",
+		noAccountsSelected: "Please select at least one account to display."
 	};
 
 	const zh = {
@@ -285,14 +304,37 @@
 		estRemainingValue: "预估剩余可用价值",
 		switchToAccount: "切换生效",
 		currentActiveTag: "当前生效",
-		unassignedAccount: "历史未标记"
+		unassignedAccount: "历史未标记",
+
+		// Historical Quota Fluctuation & Line Chart
+		valuationHistoryTitle: "历史额度波动回溯趋势",
+		valuationHistoryDesc: "存储并对比每个周期最后一次估算的结果，支持多账号自选放在折线图中观察波动趋势。",
+		metricEstTotal: "预估总价值 ($)",
+		metricUsdCost: "周期消耗 ($)",
+		metricRemaining: "剩余额度 (%)",
+		selectAll: "全选",
+		deselectAll: "清空选择",
+		recordSnapshotBtn: "记录当前周期快照",
+		recordingSnapshot: "记录中…",
+		snapshotRecordedToast: "已成功记录当前周期的估算快照",
+		clearHistoryBtn: "清空历史",
+		confirmClearHistory: "确定要清空所有历史周期的估算记录吗？",
+		noHistoryNotice: "暂无历史周期记录。随着周期推移轮转，或点击上方【记录当前周期快照】，折线图将自动在此绘制。",
+		fluctuationSummary: "波动分析",
+		fluctuationRange: "波动极差",
+		fluctuationSpan: "相对振幅",
+		noAccountsSelected: "请勾选至少一个账号以展示折线图对比。"
 	};
 
 	const DEFAULT_MODEL_PRICING = {
-		"gemini-3.7-flash-high": { input: 0.75, output: 3.75, cache: 0.1875 },
-		"gemini-3.7-flash-medium": { input: 0.75, output: 3.75, cache: 0.1875 },
-		"gemini-3.7-flash-low": { input: 0.75, output: 3.75, cache: 0.1875 },
-		"gemini-3.7-flash-tiered": { input: 0.75, output: 3.75, cache: 0.1875 },
+		"gemini-3.7-flash-high": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.7-flash-medium": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.7-flash-low": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.7-flash-tiered": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash-high": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash-medium": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash-low": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash-tiered": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.6-flash-high": { input: 0.75, output: 3.75, cache: 0.1875 },
 		"gemini-3.6-flash-medium": { input: 0.75, output: 3.75, cache: 0.1875 },
 		"gemini-3.6-flash-low": { input: 0.75, output: 3.75, cache: 0.1875 },
@@ -319,6 +361,28 @@
 		"gpt-oss-120b-medium": { input: 0.50, output: 2.00, cache: 0.10 }
 	};
 	const DEFAULT_FALLBACK_PRICING = { input: 0.75, output: 3.75, cache: 0.1875 };
+
+	function getFallbackPricing(modelId) {
+		const m = (modelId || "").toLowerCase();
+		if (m.includes("3.7-flash") || m.includes("3.8-flash")) {
+			return { input: 0.75, output: 3.75, cache: 0.075 };
+		}
+		return DEFAULT_FALLBACK_PRICING;
+	}
+
+	const ACCOUNT_PALETTE = [
+		"#0284c7", // Sky blue
+		"#10b981", // Emerald green
+		"#f59e0b", // Amber
+		"#8b5cf6", // Purple
+		"#ec4899", // Pink
+		"#06b6d4", // Cyan
+		"#ef4444", // Red
+		"#84cc16"  // Lime
+	];
+	function getAccountColor(index = 0) {
+		return ACCOUNT_PALETTE[index % ACCOUNT_PALETTE.length];
+	}
 
 	function getModelGroup(modelId) {
 		const lower = (modelId || "").toLowerCase();
@@ -441,6 +505,15 @@
 			const [showAllCatalogModels, setShowAllCatalogModels] = react.useState(false);
 			const [pricingSavedToast, setPricingSavedToast] = react.useState(false);
 			const [baselineToast, setBaselineToast] = react.useState(false);
+
+			// Historical Quota Fluctuation & Line Chart states
+			const [valuationCycles, setValuationCycles] = react.useState([]);
+			const [chartMetric, setChartMetric] = react.useState("estTotal"); // "estTotal" | "usdCost" | "remainingFraction"
+			const [selectedChartAccounts, setSelectedChartAccounts] = react.useState(() => new Set());
+			const [recordingSnapshot, setRecordingSnapshot] = react.useState(false);
+			const [snapshotToast, setSnapshotToast] = react.useState(null);
+			const [hoveredChartPoint, setHoveredChartPoint] = react.useState(null);
+			const lastAutoSnapshotRef = react.useRef("");
 
 			const [quotaBaselines, setQuotaBaselines] = react.useState(() => {
 				try {
@@ -922,10 +995,11 @@
 			const modelCostList = [];
 			for (const mId of Array.from(displayedModelKeys).sort()) {
 				const stats = windowModelStats[mId] || { requests: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, totalTokens: 0 };
-				const p = pricing[mId] || DEFAULT_MODEL_PRICING[mId] || DEFAULT_FALLBACK_PRICING;
-				const pIn = typeof p.input === "number" ? p.input : DEFAULT_FALLBACK_PRICING.input;
-				const pOut = typeof p.output === "number" ? p.output : DEFAULT_FALLBACK_PRICING.output;
-				const pCache = typeof p.cache === "number" ? p.cache : DEFAULT_FALLBACK_PRICING.cache;
+				const fallbackP = getFallbackPricing(mId);
+				const p = pricing[mId] || DEFAULT_MODEL_PRICING[mId] || fallbackP;
+				const pIn = typeof p.input === "number" ? p.input : fallbackP.input;
+				const pOut = typeof p.output === "number" ? p.output : fallbackP.output;
+				const pCache = typeof p.cache === "number" ? p.cache : fallbackP.cache;
 
 				const outputWithReasoning = (stats.outputTokens || 0) + (stats.reasoningTokens || 0);
 				const inCost = ((stats.inputTokens || 0) * pIn) / 1000000;
@@ -986,10 +1060,11 @@
 						const mName = rec.model || "unknown";
 						if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
 
-						const p = pricing[mName] || DEFAULT_MODEL_PRICING[mName] || DEFAULT_FALLBACK_PRICING;
-						const pIn = typeof p.input === "number" ? p.input : DEFAULT_FALLBACK_PRICING.input;
-						const pOut = typeof p.output === "number" ? p.output : DEFAULT_FALLBACK_PRICING.output;
-						const pCache = typeof p.cache === "number" ? p.cache : DEFAULT_FALLBACK_PRICING.cache;
+						const fallbackP = getFallbackPricing(mName);
+						const p = pricing[mName] || DEFAULT_MODEL_PRICING[mName] || fallbackP;
+						const pIn = typeof p.input === "number" ? p.input : fallbackP.input;
+						const pOut = typeof p.output === "number" ? p.output : fallbackP.output;
+						const pCache = typeof p.cache === "number" ? p.cache : fallbackP.cache;
 
 						const inTok = rec.inputTokens || 0;
 						const outTok = (rec.outputTokens || 0) + (rec.reasoningTokens || 0);
@@ -1068,6 +1143,159 @@
 					estRemainingQuotaUsd = estTotalQuotaUsd * (bucketRemainingFraction ?? 0);
 				}
 			}
+
+			// -------------------------------------------------------------
+			// Historical Valuation & Fluctuation Line Chart Handlers
+			// -------------------------------------------------------------
+			react.useEffect(() => {
+				if (accountsData.accounts && accountsData.accounts.length > 0) {
+					setSelectedChartAccounts(prev => {
+						if (!prev || prev.size === 0) {
+							return new Set(accountsData.accounts.map(a => a.id));
+						}
+						return prev;
+					});
+				}
+			}, [accountsData.accounts]);
+
+			const fetchValuationHistory = react.useCallback(async (p) => {
+				const period = p || (activeValuationPeriod === "all" ? "5h" : activeValuationPeriod);
+				try {
+					const res = await fetch(`/api/antigravity/valuation/history?period=${encodeURIComponent(period)}`);
+					if (res.ok) {
+						const json = await res.json();
+						if (json.ok && Array.isArray(json.cycles)) {
+							setValuationCycles(json.cycles);
+						}
+					}
+				} catch (e) {
+					console.error("Failed to fetch valuation history:", e);
+				}
+			}, [activeValuationPeriod]);
+
+			react.useEffect(() => {
+				if (open && activeTab === "valuation") {
+					fetchValuationHistory();
+				}
+			}, [open, activeTab, fetchValuationHistory]);
+
+			const handleRecordSnapshot = react.useCallback(async (manual = false) => {
+				const period = activeValuationPeriod === "all" ? "5h" : activeValuationPeriod;
+				const rTime = bucketResetTime || new Date(windowEndMs).toISOString();
+				const cycleId = `${period}_${rTime}`;
+
+				const accMap = {};
+				if (accountMatrixList && accountMatrixList.length > 0) {
+					for (const row of accountMatrixList) {
+						accMap[row.account.id] = {
+							accountId: row.account.id,
+							accountName: row.account.name || row.account.email || row.account.id,
+							accountEmail: row.account.email || "",
+							tier: row.tier || "",
+							requests: row.requests,
+							tokens: row.tokens,
+							usdCost: row.usdCost,
+							remainingFraction: row.remainingFraction,
+							usedFraction: row.remainingFraction !== null ? Math.max(0, 1 - row.remainingFraction) : null,
+							estTotalValue: row.estTotal,
+							estRemainingValue: row.estRemaining,
+						};
+					}
+				} else if (accountsData.accounts && accountsData.accounts.length > 0) {
+					const acc = accountsData.accounts.find(a => a.id === accountsData.activeAccountId) || accountsData.accounts[0];
+					accMap[acc.id] = {
+						accountId: acc.id,
+						accountName: acc.name || acc.email || acc.id,
+						accountEmail: acc.email || "",
+						tier: acc.tier || "",
+						requests: usageData?.summary?.totalRequests || 0,
+						tokens: totalPeriodInputTokens + totalPeriodOutputTokens + totalPeriodReasoningTokens,
+						usdCost: totalPeriodUsdCost,
+						remainingFraction: bucketRemainingFraction,
+						usedFraction: usedFraction,
+						estTotalValue: estTotalQuotaUsd,
+						estRemainingValue: estRemainingQuotaUsd,
+					};
+				}
+
+				const payload = {
+					cycleId,
+					period,
+					resetTime: rTime,
+					windowStart: windowStartMs,
+					windowEnd: windowEndMs,
+					accounts: accMap,
+					totalRequests: Object.values(accMap).reduce((s, a) => s + (a.requests || 0), 0),
+					totalTokens: Object.values(accMap).reduce((s, a) => s + (a.tokens || 0), 0),
+					totalUsdCost: totalPeriodUsdCost,
+					estTotalValue: estTotalQuotaUsd,
+					estRemainingValue: estRemainingQuotaUsd,
+				};
+
+				if (manual) setRecordingSnapshot(true);
+				try {
+					const res = await fetch(`/api/antigravity/valuation/history?period=${encodeURIComponent(period)}`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload)
+					});
+					if (res.ok) {
+						const json = await res.json();
+						if (json.ok && Array.isArray(json.cycles)) {
+							setValuationCycles(json.cycles);
+							if (manual) {
+								setSnapshotToast(t("snapshotRecordedToast"));
+								setTimeout(() => setSnapshotToast(null), 3000);
+							}
+						}
+					}
+				} catch (e) {
+					console.error("Failed to record snapshot:", e);
+				} finally {
+					if (manual) setRecordingSnapshot(false);
+				}
+			}, [activeValuationPeriod, bucketResetTime, windowEndMs, windowStartMs, accountMatrixList, accountsData.accounts, accountsData.activeAccountId, usageData, totalPeriodInputTokens, totalPeriodOutputTokens, totalPeriodReasoningTokens, totalPeriodUsdCost, bucketRemainingFraction, usedFraction, estTotalQuotaUsd, estRemainingQuotaUsd, t]);
+
+			react.useEffect(() => {
+				if (!open || activeTab !== "valuation") return;
+				const period = activeValuationPeriod === "all" ? "5h" : activeValuationPeriod;
+				const rTime = bucketResetTime || new Date(windowEndMs).toISOString();
+				const syncKey = `${period}_${rTime}_${totalPeriodUsdCost.toFixed(4)}_${bucketRemainingFraction}`;
+				if (lastAutoSnapshotRef.current !== syncKey && (totalPeriodUsdCost > 0 || bucketRemainingFraction !== null)) {
+					lastAutoSnapshotRef.current = syncKey;
+					handleRecordSnapshot(false);
+				}
+			}, [open, activeTab, activeValuationPeriod, bucketResetTime, windowEndMs, totalPeriodUsdCost, bucketRemainingFraction, handleRecordSnapshot]);
+
+			const handleClearValuationHistory = react.useCallback(async () => {
+				if (!confirm(t("confirmClearHistory"))) return;
+				const period = activeValuationPeriod === "all" ? "all" : activeValuationPeriod;
+				try {
+					const res = await fetch(`/api/antigravity/valuation/history?period=${encodeURIComponent(period)}`, { method: "DELETE" });
+					if (res.ok) {
+						setValuationCycles([]);
+					}
+				} catch (e) {
+					console.error(e);
+				}
+			}, [t, activeValuationPeriod]);
+
+			const toggleChartAccount = (accId) => {
+				setSelectedChartAccounts(prev => {
+					const next = new Set(prev);
+					if (next.has(accId)) next.delete(accId);
+					else next.add(accId);
+					return next;
+				});
+			};
+			const selectAllChartAccounts = () => {
+				if (accountsData.accounts) {
+					setSelectedChartAccounts(new Set(accountsData.accounts.map(a => a.id)));
+				}
+			};
+			const deselectAllChartAccounts = () => {
+				setSelectedChartAccounts(new Set());
+			};
 
 			return (0, react_jsx_runtime.jsxs)("li", {
 				style: {
@@ -2483,6 +2711,517 @@
 											})
 										]
 									}) : null,
+
+									// Historical Quota Fluctuation & Multi-Account Line Chart Section
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											borderRadius: 8,
+											border: "1px solid var(--dsw-alias-border-l3, #e5e7eb)",
+											background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+											padding: "14px 16px",
+											marginBottom: 16
+										},
+										children: [
+											// Section Header + Controls Bar
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, flexWrap: "wrap", gap: 10 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)", display: "flex", alignItems: "center", gap: 6 },
+																children: [
+																	(0, react_jsx_runtime.jsx)("span", { children: "📈" }),
+																	(0, react_jsx_runtime.jsx)("span", { children: t("valuationHistoryTitle") })
+																]
+															}),
+															(0, react_jsx_runtime.jsx)("div", {
+																style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginTop: 2 },
+																children: t("valuationHistoryDesc")
+															})
+														]
+													}),
+													// Action Buttons (Record Snapshot & Clear History)
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+														children: [
+															snapshotToast ? (0, react_jsx_runtime.jsx)("span", {
+																style: { fontSize: 11, color: "#16a34a", fontWeight: 500 },
+																children: `✓ ${snapshotToast}`
+															}) : null,
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "4px 10px",
+																	borderRadius: 6,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+																	fontSize: 11,
+																	color: "var(--dsw-alias-label-primary, #111827)",
+																	cursor: recordingSnapshot ? "default" : "pointer"
+																},
+																disabled: recordingSnapshot,
+																onClick: () => handleRecordSnapshot(true),
+																children: recordingSnapshot ? t("recordingSnapshot") : `📸 ${t("recordSnapshotBtn")}`
+															}),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "4px 8px",
+																	borderRadius: 6,
+																	border: "1px solid #fecaca",
+																	background: "#fee2e2",
+																	fontSize: 11,
+																	color: "#dc2626",
+																	cursor: "pointer"
+																},
+																onClick: handleClearValuationHistory,
+																children: `🗑️ ${t("clearHistoryBtn")}`
+															})
+														]
+													})
+												]
+											}),
+
+											// Metric Switcher + Account Selection Toolbar
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12, padding: "8px 10px", borderRadius: 6, background: "var(--dsw-alias-bg-layer-2, #ffffff)", border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)" },
+												children: [
+													// Metric Pills
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", gap: 4, background: "var(--dsw-alias-bg-module-platform, #f3f4f6)", padding: 2, borderRadius: 6 },
+														children: [
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "3px 8px",
+																	borderRadius: 5,
+																	border: "none",
+																	fontSize: 11,
+																	fontWeight: chartMetric === "estTotal" ? 600 : 400,
+																	background: chartMetric === "estTotal" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "transparent",
+																	color: chartMetric === "estTotal" ? "#1d4ed8" : "var(--dsw-alias-label-secondary, #6b7280)",
+																	boxShadow: chartMetric === "estTotal" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+																	cursor: "pointer"
+																},
+																onClick: () => setChartMetric("estTotal"),
+																children: `🔮 ${t("metricEstTotal")}`
+															}),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "3px 8px",
+																	borderRadius: 5,
+																	border: "none",
+																	fontSize: 11,
+																	fontWeight: chartMetric === "usdCost" ? 600 : 400,
+																	background: chartMetric === "usdCost" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "transparent",
+																	color: chartMetric === "usdCost" ? "#0284c7" : "var(--dsw-alias-label-secondary, #6b7280)",
+																	boxShadow: chartMetric === "usdCost" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+																	cursor: "pointer"
+																},
+																onClick: () => setChartMetric("usdCost"),
+																children: `💸 ${t("metricUsdCost")}`
+															}),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: {
+																	padding: "3px 8px",
+																	borderRadius: 5,
+																	border: "none",
+																	fontSize: 11,
+																	fontWeight: chartMetric === "remainingFraction" ? 600 : 400,
+																	background: chartMetric === "remainingFraction" ? "var(--dsw-alias-bg-layer-3, #ffffff)" : "transparent",
+																	color: chartMetric === "remainingFraction" ? "#059669" : "var(--dsw-alias-label-secondary, #6b7280)",
+																	boxShadow: chartMetric === "remainingFraction" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+																	cursor: "pointer"
+																},
+																onClick: () => setChartMetric("remainingFraction"),
+																children: `🛡️ ${t("metricRemaining")}`
+															})
+														]
+													}),
+
+													// Account Selectors (Multi-select toggles)
+													(0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+														children: [
+															...(accountsData.accounts || []).map((acc, accIdx) => {
+																const isChecked = selectedChartAccounts.has(acc.id);
+																const color = getAccountColor(accIdx);
+																return (0, react_jsx_runtime.jsxs)("button", {
+																	key: acc.id,
+																	type: "button",
+																	style: {
+																		display: "flex",
+																		alignItems: "center",
+																		gap: 5,
+																		padding: "3px 8px",
+																		borderRadius: 6,
+																		border: `1px solid ${isChecked ? color : "var(--dsw-alias-border-l2, #d1d5db)"}`,
+																		background: isChecked ? `${color}14` : "var(--dsw-alias-bg-layer-3, #ffffff)",
+																		color: isChecked ? color : "var(--dsw-alias-label-secondary, #6b7280)",
+																		fontSize: 11,
+																		fontWeight: isChecked ? 600 : 400,
+																		cursor: "pointer",
+																		transition: "all 0.15s"
+																	},
+																	onClick: () => toggleChartAccount(acc.id),
+																	children: [
+																		(0, react_jsx_runtime.jsx)("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" } }),
+																		(0, react_jsx_runtime.jsx)("span", { children: acc.name || acc.email || acc.id }),
+																		(0, react_jsx_runtime.jsx)("span", { style: { fontSize: 10 }, children: isChecked ? "✓" : "" })
+																	]
+																});
+															}),
+															accountsData.accounts && accountsData.accounts.length > 1 ? (0, react_jsx_runtime.jsxs)("div", {
+																style: { display: "flex", gap: 4, marginLeft: 4 },
+																children: [
+																	(0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: { padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "1px solid var(--dsw-alias-border-l2, #d1d5db)", background: "transparent", color: "var(--dsw-alias-label-tertiary, #6b7280)", cursor: "pointer" },
+																		onClick: selectAllChartAccounts,
+																		children: t("selectAll")
+																	}),
+																	(0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: { padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "1px solid var(--dsw-alias-border-l2, #d1d5db)", background: "transparent", color: "var(--dsw-alias-label-tertiary, #6b7280)", cursor: "pointer" },
+																		onClick: deselectAllChartAccounts,
+																		children: t("deselectAll")
+																	})
+																]
+															}) : null
+														]
+													})
+												]
+											}),
+
+											// SVG Line Chart Container
+											(() => {
+												const periodCycles = valuationCycles.filter(c => (activeValuationPeriod === "all" || c.period === activeValuationPeriod));
+												const accountsList = (accountsData.accounts || []);
+												const selectedAccountsList = accountsList.filter(a => selectedChartAccounts.has(a.id));
+
+												if (selectedAccountsList.length === 0) {
+													return (0, react_jsx_runtime.jsx)("div", {
+														style: { padding: "30px 16px", textAlign: "center", color: "var(--dsw-alias-label-tertiary, #9ca3af)", fontSize: 12 },
+														children: t("noAccountsSelected")
+													});
+												}
+
+												if (periodCycles.length === 0) {
+													return (0, react_jsx_runtime.jsxs)("div", {
+														style: { padding: "32px 16px", textAlign: "center", color: "var(--dsw-alias-label-tertiary, #9ca3af)", fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", { style: { fontSize: 24 }, children: "📉" }),
+															(0, react_jsx_runtime.jsx)("div", { children: t("noHistoryNotice") }),
+															(0, react_jsx_runtime.jsx)("button", {
+																type: "button",
+																style: { padding: "4px 12px", borderRadius: 6, border: "1px solid var(--dsw-alias-brand-primary, #0284c7)", background: "#f0f9ff", color: "var(--dsw-alias-brand-primary, #0284c7)", fontSize: 11, cursor: "pointer" },
+																onClick: () => handleRecordSnapshot(true),
+																children: `📸 ${t("recordSnapshotBtn")}`
+															})
+														]
+													});
+												}
+
+												// Chart layout metrics
+												const svgWidth = 720;
+												const svgHeight = 220;
+												const padLeft = 60;
+												const padRight = 35;
+												const padTop = 20;
+												const padBottom = 40;
+												const plotW = svgWidth - padLeft - padRight;
+												const plotH = svgHeight - padTop - padBottom;
+
+												// Extract values for all selected accounts across cycles
+												const allMetricVals = [];
+												const accountPointsMap = {};
+
+												selectedAccountsList.forEach((acc) => {
+													const color = getAccountColor(accountsList.findIndex(a => a.id === acc.id));
+													accountPointsMap[acc.id] = {
+														account: acc,
+														color,
+														points: []
+													};
+												});
+
+												periodCycles.forEach((cycle, cIdx) => {
+													const x = periodCycles.length === 1
+														? (padLeft + plotW / 2)
+														: (padLeft + (cIdx / (periodCycles.length - 1)) * plotW);
+
+													selectedAccountsList.forEach(acc => {
+														const accData = cycle.accounts?.[acc.id];
+														let val = null;
+														if (accData) {
+															if (chartMetric === "estTotal") val = typeof accData.estTotalValue === "number" ? accData.estTotalValue : null;
+															else if (chartMetric === "usdCost") val = typeof accData.usdCost === "number" ? accData.usdCost : 0;
+															else if (chartMetric === "remainingFraction") val = typeof accData.remainingFraction === "number" ? Math.round(accData.remainingFraction * 1000) / 10 : null;
+														}
+														if (val !== null && !isNaN(val)) {
+															allMetricVals.push(val);
+															accountPointsMap[acc.id].points.push({ x, val, cycle, cIdx, accData, acc });
+														}
+													});
+												});
+
+												let minY = 0;
+												let maxY = chartMetric === "remainingFraction" ? 100 : 1;
+												if (allMetricVals.length > 0) {
+													const maxObserved = Math.max(...allMetricVals);
+													if (chartMetric === "remainingFraction") {
+														maxY = 100;
+													} else {
+														maxY = maxObserved > 0 ? (maxObserved * 1.2) : 1;
+													}
+												}
+												if (maxY === minY) maxY = minY + 1;
+
+												const getY = (v) => (padTop + plotH) - ((v - minY) / (maxY - minY)) * plotH;
+
+												const ticks = [0, 0.33, 0.66, 1.0].map(ratio => {
+													const val = minY + ratio * (maxY - minY);
+													const y = (padTop + plotH) - ratio * plotH;
+													return { val, y };
+												});
+
+												return (0, react_jsx_runtime.jsxs)("div", {
+													style: { width: "100%", position: "relative" },
+													children: [
+														(0, react_jsx_runtime.jsxs)("svg", {
+															viewBox: `0 0 ${svgWidth} ${svgHeight}`,
+															style: { width: "100%", height: "auto", display: "block" },
+															children: [
+																// Horizontal Grid Lines & Y-Labels
+																ticks.map((tck, idx) => (0, react_jsx_runtime.jsxs)("g", {
+																	key: idx,
+																	children: [
+																		(0, react_jsx_runtime.jsx)("line", {
+																			x1: padLeft,
+																			y1: tck.y,
+																			x2: padLeft + plotW,
+																			y2: tck.y,
+																			stroke: "var(--dsw-alias-border-l3, #e5e7eb)",
+																			strokeDasharray: "3,3",
+																			strokeWidth: "1"
+																		}),
+																		(0, react_jsx_runtime.jsx)("text", {
+																			x: padLeft - 8,
+																			y: tck.y + 4,
+																			textAnchor: "end",
+																			fontSize: "10",
+																			fill: "var(--dsw-alias-label-tertiary, #9ca3af)",
+																			children: chartMetric === "remainingFraction" ? `${Math.round(tck.val)}%` : formatCurrency(tck.val)
+																		})
+																	]
+																})),
+
+																// X-Axis Baseline
+																(0, react_jsx_runtime.jsx)("line", {
+																	x1: padLeft,
+																	y1: padTop + plotH,
+																	x2: padLeft + plotW,
+																	y2: padTop + plotH,
+																	stroke: "var(--dsw-alias-border-l2, #d1d5db)",
+																	strokeWidth: "1"
+																}),
+
+																// X-Axis Labels (Cycles)
+																periodCycles.map((cycle, cIdx) => {
+																	const x = periodCycles.length === 1 ? (padLeft + plotW / 2) : (padLeft + (cIdx / (periodCycles.length - 1)) * plotW);
+																	let label = "";
+																	if (cycle.resetTime) {
+																		try {
+																			const d = new Date(cycle.resetTime);
+																			label = `${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+																		} catch { label = cycle.cycleId || ""; }
+																	} else {
+																		label = `P${cIdx+1}`;
+																	}
+																	return (0, react_jsx_runtime.jsx)("text", {
+																		key: cIdx,
+																		x,
+																		y: padTop + plotH + 18,
+																		textAnchor: "middle",
+																		fontSize: "10",
+																		fill: "var(--dsw-alias-label-secondary, #6b7280)",
+																		children: label
+																	});
+																}),
+
+																// Polylines & Data Point Circles per Account
+																selectedAccountsList.map(acc => {
+																	const series = accountPointsMap[acc.id];
+																	if (!series || series.points.length === 0) return null;
+																	const pointsStr = series.points.map(pt => `${pt.x},${getY(pt.val)}`).join(" ");
+
+																	return (0, react_jsx_runtime.jsxs)("g", {
+																		key: acc.id,
+																		children: [
+																			series.points.length > 1 ? (0, react_jsx_runtime.jsx)("polyline", {
+																				fill: "none",
+																				stroke: series.color,
+																				strokeWidth: "2.5",
+																				strokeLinejoin: "round",
+																				strokeLinecap: "round",
+																				points: pointsStr
+																			}) : null,
+																			series.points.map((pt, pIdx) => {
+																				const isHovered = hoveredChartPoint?.accId === acc.id && hoveredChartPoint?.cIdx === pt.cIdx;
+																				return (0, react_jsx_runtime.jsx)("circle", {
+																					key: pIdx,
+																					cx: pt.x,
+																					cy: getY(pt.val),
+																					r: isHovered ? 6 : 4,
+																					fill: series.color,
+																					stroke: "#ffffff",
+																					strokeWidth: isHovered ? 2.5 : 1.5,
+																					style: { cursor: "pointer", transition: "r 0.15s" },
+																					onMouseEnter: () => setHoveredChartPoint({
+																						accId: acc.id,
+																						cIdx: pt.cIdx,
+																						accName: acc.name || acc.email || acc.id,
+																						val: pt.val,
+																						accData: pt.accData,
+																						cycle: pt.cycle,
+																						x: pt.x,
+																						y: getY(pt.val),
+																						color: series.color
+																					}),
+																					onMouseLeave: () => setHoveredChartPoint(null)
+																				});
+																			})
+																		]
+																	});
+																})
+															]
+														}),
+
+														// Floating Hover Tooltip
+														hoveredChartPoint ? (0, react_jsx_runtime.jsxs)("div", {
+															style: {
+																position: "absolute",
+																left: Math.min(Math.max(10, (hoveredChartPoint.x / svgWidth) * 100), 75) + "%",
+																top: Math.max(10, (hoveredChartPoint.y / svgHeight) * 100 - 15) + "%",
+																background: "rgba(17, 24, 39, 0.92)",
+																color: "#ffffff",
+																padding: "8px 12px",
+																borderRadius: 6,
+																fontSize: 11,
+																pointerEvents: "none",
+																boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.2)",
+																zIndex: 20,
+																whiteSpace: "nowrap",
+																display: "flex",
+																flexDirection: "column",
+																gap: 2
+															},
+															children: [
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { fontWeight: 600, display: "flex", alignItems: "center", gap: 5 },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("span", { style: { width: 7, height: 7, borderRadius: "50%", background: hoveredChartPoint.color } }),
+																		(0, react_jsx_runtime.jsx)("span", { children: hoveredChartPoint.accName })
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { color: "#9ca3af", fontSize: 10 },
+																	children: [
+																		"周期: ",
+																		hoveredChartPoint.cycle?.resetTime
+																			? new Date(hoveredChartPoint.cycle.resetTime).toLocaleString()
+																			: hoveredChartPoint.cycle?.cycleId
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { color: "#38bdf8", fontWeight: 600, marginTop: 2 },
+																	children: [
+																		chartMetric === "estTotal" ? `${t("estTotalValue")}: ${formatCurrency(hoveredChartPoint.val)}` :
+																		chartMetric === "usdCost" ? `${t("windowUsedUsd")}: ${formatCurrency(hoveredChartPoint.val)}` :
+																		`${t("remainingQuotaPct")}: ${hoveredChartPoint.val}%`
+																	]
+																}),
+																hoveredChartPoint.accData ? (0, react_jsx_runtime.jsxs)("div", {
+																	style: { color: "#d1d5db", fontSize: 10 },
+																	children: [
+																		`消耗: ${formatCurrency(hoveredChartPoint.accData.usdCost || 0)} (${formatTokens(hoveredChartPoint.accData.tokens || 0)} Tokens) | 剩余: ${typeof hoveredChartPoint.accData.remainingFraction === "number" ? Math.round(hoveredChartPoint.accData.remainingFraction * 100) + "%" : "—"}`
+																	]
+																}) : null
+															]
+														}) : null,
+
+														// Fluctuation Summary Cards (波动分析)
+														(0, react_jsx_runtime.jsxs)("div", {
+															style: { marginTop: 14, borderTop: "1px solid var(--dsw-alias-border-l3, #f3f4f6)", paddingTop: 10 },
+															children: [
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { fontSize: 11, fontWeight: 600, color: "var(--dsw-alias-label-secondary, #4b5563)", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("span", { children: "📊" }),
+																		(0, react_jsx_runtime.jsx)("span", { children: t("fluctuationSummary") })
+																	]
+																}),
+																(0, react_jsx_runtime.jsx)("div", {
+																	style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 },
+																	children: selectedAccountsList.map(acc => {
+																		const series = accountPointsMap[acc.id];
+																		const vals = (series?.points || []).map(pt => pt.val);
+																		if (vals.length === 0) return null;
+																		const minV = Math.min(...vals);
+																		const maxV = Math.max(...vals);
+																		const span = maxV - minV;
+																		const avgV = vals.reduce((a,b)=>a+b, 0) / vals.length;
+																		const flucPct = avgV > 0 ? ((span / avgV) * 100).toFixed(1) : "0.0";
+
+																		return (0, react_jsx_runtime.jsxs)("div", {
+																			key: acc.id,
+																			style: {
+																				padding: "8px 10px",
+																				borderRadius: 6,
+																				background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																				border: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
+																				display: "flex",
+																				flexDirection: "column",
+																				gap: 2
+																			},
+																			children: [
+																				(0, react_jsx_runtime.jsxs)("div", {
+																					style: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+																					children: [
+																						(0, react_jsx_runtime.jsxs)("div", {
+																							style: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" },
+																							children: [
+																								(0, react_jsx_runtime.jsx)("span", { style: { width: 7, height: 7, borderRadius: "50%", background: series.color } }),
+																								(0, react_jsx_runtime.jsx)("span", { children: acc.name || acc.email || acc.id })
+																							]
+																						}),
+																						(0, react_jsx_runtime.jsx)("span", {
+																							style: { fontSize: 10, padding: "1px 5px", borderRadius: 4, background: span > 0.5 ? "#fee2e2" : "#ecfdf5", color: span > 0.5 ? "#dc2626" : "#059669", fontWeight: 600 },
+																							children: vals.length > 1 ? `±${flucPct}%` : "基准点"
+																						})
+																					]
+																				}),
+																				(0, react_jsx_runtime.jsxs)("div", {
+																					style: { fontSize: 10, color: "var(--dsw-alias-label-secondary, #6b7280)", display: "flex", justifyContent: "space-between", marginTop: 2 },
+																					children: [
+																						(0, react_jsx_runtime.jsxs)("span", { children: [`${t("fluctuationRange")}: `, chartMetric === "remainingFraction" ? `${minV}% ~ ${maxV}%` : `${formatCurrency(minV)} ~ ${formatCurrency(maxV)}`] }),
+																						vals.length > 1 ? (0, react_jsx_runtime.jsxs)("span", { children: [`Δ: `, chartMetric === "remainingFraction" ? `${span.toFixed(1)}%` : formatCurrency(span)] }) : null
+																					]
+																				})
+																			]
+																		});
+																	})
+																})
+															]
+														})
+													]
+												});
+											})()
+										]
+									}),
 
 									// Pricing & Valuation Table Section
 									(0, react_jsx_runtime.jsxs)("div", {
