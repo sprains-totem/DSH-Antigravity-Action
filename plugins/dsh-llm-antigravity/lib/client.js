@@ -2074,9 +2074,9 @@
 		}
 
 		class AntigravityCardController {
-			constructor(scope, api) {
+			constructor(scope, ctx) {
 				this.scope = scope;
-				this.api = api;
+				this.ctx = ctx;
 				this.draftToken = void 0;
 				this.draftBaseUrl = void 0;
 				this.saving = false;
@@ -2090,12 +2090,26 @@
 
 			async checkCredential() {
 				try {
-					const res = await this.api.credentials.describe({ refs: [TOKEN_REF] });
-					if (res.result.ok) {
-						this.tokenConfigured = res.result.value.credentials[TOKEN_REF]?.configured ?? false;
-						this.store.set(this.projection());
+					let configured = false;
+					if (this.ctx?.remote?.credentials?.describe) {
+						const res = await this.ctx.remote.credentials.describe([TOKEN_REF]);
+						if (res && res.ok && res.value) {
+							configured = res.value[TOKEN_REF]?.configured ?? false;
+						} else if (res && res[TOKEN_REF]) {
+							configured = res[TOKEN_REF]?.configured ?? false;
+						}
+					} else if (this.ctx?.get?.("connection")?.api?.credentials?.describe) {
+						const api = this.ctx.get("connection").api;
+						const res = await api.credentials.describe({ refs: [TOKEN_REF] });
+						if (res?.result?.ok) {
+							configured = res.result.value.credentials?.[TOKEN_REF]?.configured ?? false;
+						}
 					}
-				} catch (e) {}
+					this.tokenConfigured = configured;
+					this.store.set(this.projection());
+				} catch (e) {
+					console.error("[antigravity] checkCredential error:", e);
+				}
 			}
 
 			projection() {
@@ -2132,22 +2146,34 @@
 				this.store.set(this.projection());
 				try {
 					if (this.draftToken !== void 0 && this.draftToken.trim().length > 0) {
-						await this.api.credentials.set({
-							ref: TOKEN_REF,
-							value: this.draftToken.trim()
-						});
+						if (this.ctx?.remote?.credentials?.set) {
+							await this.ctx.remote.credentials.set(TOKEN_REF, this.draftToken.trim());
+						} else if (this.ctx?.get?.("connection")?.api?.credentials?.set) {
+							const api = this.ctx.get("connection").api;
+							await api.credentials.set({
+								ref: TOKEN_REF,
+								value: this.draftToken.trim()
+							});
+						}
 						this.tokenConfigured = true;
 						this.draftToken = void 0;
 					}
 					if (this.draftBaseUrl !== void 0) {
-						await this.api.settings.mutate({
-							ns: NS,
-							ops: [{ op: "set", path: ["baseURL"], value: this.draftBaseUrl.trim() }]
-						});
+						if (this.scope && typeof this.scope.mutate === "function") {
+							await this.scope.mutate([
+								{ op: "set", path: ["baseURL"], value: this.draftBaseUrl.trim() }
+							]);
+						} else if (this.ctx?.get?.("connection")?.api?.settings?.mutate) {
+							const api = this.ctx.get("connection").api;
+							await api.settings.mutate({
+								ns: NS,
+								ops: [{ op: "set", path: ["baseURL"], value: this.draftBaseUrl.trim() }]
+							});
+						}
 						this.draftBaseUrl = void 0;
 					}
 				} catch (e) {
-					console.error(e);
+					console.error("[antigravity] save error:", e);
 				} finally {
 					this.saving = false;
 					await this.checkCredential();
@@ -2171,22 +2197,34 @@
 			"locale",
 			"connection",
 			"remote",
+			"remote.credentials",
 			"settingsScope"
 		];
 
 		function apply(ctx) {
-			const { api } = ctx.get("connection");
 			const t = ctx.locale.bind(NS);
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "llm-antigravity: locales");
 
 			const controller = new AntigravityCardController(
 				ctx.settingsScope.bind({ namespace: NS }),
-				api
+				ctx
 			);
 
-			ctx.effect(() => ctx.remote.$on("credentials/updated", (ref) => {
-				if (ref === TOKEN_REF) controller.checkCredential();
-			}), "llm-antigravity: credential update watcher");
+			if (ctx.remote && typeof ctx.remote.$on === "function") {
+				ctx.effect(() => ctx.remote.$on("credentials/reference-updated", (ref) => {
+					if (ref === TOKEN_REF) controller.checkCredential();
+				}), "llm-antigravity: credential update watcher (ref)");
+
+				ctx.effect(() => ctx.remote.$on("credentials/updated", (ref) => {
+					if (ref === TOKEN_REF) controller.checkCredential();
+				}), "llm-antigravity: credential update watcher");
+			}
+
+			if (typeof ctx.on === "function") {
+				ctx.effect(() => ctx.on("connection/reset", () => {
+					controller.checkCredential();
+				}), "llm-antigravity: connection reset watcher");
+			}
 
 			ctx.slots.inject("settings.plugin.item", function* () {
 				yield ctx.slots.register({
