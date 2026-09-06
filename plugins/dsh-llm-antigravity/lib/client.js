@@ -6,9 +6,30 @@
 		title: "Antigravity (Google Cloud Code)",
 		description: "Google Cloud Code Gemini adapter with OAuth 2.0 refresh_token, live quota, usage statistics & USD valuation estimation.",
 		tabQuota: "Real-time Quota",
+		tabAccounts: "Accounts",
 		tabUsage: "Usage Statistics",
 		tabValuation: "Quota Estimation",
 		tabConfig: "Settings",
+		activeAccount: "Active Account",
+		switchAccount: "Switch",
+		switching: "Switching…",
+		accountSwitched: "Switched active account",
+		addAccount: "Add Account",
+		addingAccount: "Validating & Adding…",
+		accountAdded: "Account added successfully",
+		deleteAccount: "Delete",
+		confirmDeleteAccount: "Are you sure you want to delete this account?",
+		accountDeleted: "Account deleted",
+		accountNameLabel: "Account Name / Tag",
+		accountNamePlaceholder: "e.g. Work, Personal (Leave empty to use email)",
+		accountTokenLabel: "Refresh Token",
+		accountTokenPlaceholder: "Paste OAuth 2.0 Refresh Token here",
+		accountTokenRequired: "Refresh Token is required",
+		accountListTitle: "Configured Accounts",
+		noAccountsYet: "No accounts configured yet. Add your first account below.",
+		currentActiveBadge: "Active",
+		backupBadge: "Standby",
+		quickSwitchLabel: "Account",
 		tokenLabel: "Refresh Token",
 		tokenHint: "Google Cloud Code OAuth 2.0 refresh token. Stored securely in credentials service.",
 		tokenConfigured: "Configured",
@@ -111,9 +132,30 @@
 		title: "Antigravity (Google Cloud Code)",
 		description: "Google Cloud Code Gemini 适配器，支持 OAuth 2.0 认证、实时额度监控、Token 用量统计与 5小时/周额度美元价值预估。",
 		tabQuota: "实时额度",
+		tabAccounts: "账号管理",
 		tabUsage: "用量统计",
 		tabValuation: "额度估算",
 		tabConfig: "基本配置",
+		activeAccount: "当前活跃账号",
+		switchAccount: "切换使用",
+		switching: "切换中…",
+		accountSwitched: "已成功切换至该账号",
+		addAccount: "添加账号",
+		addingAccount: "正在验证并添加…",
+		accountAdded: "账号已成功添加并激活！",
+		deleteAccount: "删除",
+		confirmDeleteAccount: "确定要删除该账号吗？",
+		accountDeleted: "账号已删除",
+		accountNameLabel: "账号名称 / 备注",
+		accountNamePlaceholder: "例如：个人主号、工作号（留空自动使用邮箱）",
+		accountTokenLabel: "Refresh Token",
+		accountTokenPlaceholder: "在此粘贴 Google Cloud Code OAuth 2.0 Refresh Token",
+		accountTokenRequired: "请输入 Refresh Token",
+		accountListTitle: "已配置账号列表",
+		noAccountsYet: "暂未配置多账号。请在下方添加账号。",
+		currentActiveBadge: "当前生效",
+		backupBadge: "备用",
+		quickSwitchLabel: "当前账号",
 		tokenLabel: "Refresh Token",
 		tokenHint: "Google Cloud Code OAuth 2.0 刷新令牌，安全保存在本地凭据库中。",
 		tokenConfigured: "已配置",
@@ -326,7 +368,7 @@
 					};
 				}
 			};
-		})();
+ 		})();
 
 		function AntigravityCard(props) {
 			const [open, setOpen] = react.useState(true);
@@ -345,6 +387,16 @@
 			const [loadingUsage, setLoadingUsage] = react.useState(false);
 			const [usageError, setUsageError] = react.useState(null);
 			const [clearingUsage, setClearingUsage] = react.useState(false);
+
+			// Accounts management states
+			const [accountsData, setAccountsData] = react.useState({ accounts: [], activeAccountId: "" });
+			const [loadingAccounts, setLoadingAccounts] = react.useState(false);
+			const [switchingAccountId, setSwitchingAccountId] = react.useState(null);
+			const [newAccountName, setNewAccountName] = react.useState("");
+			const [newAccountToken, setNewAccountToken] = react.useState("");
+			const [addingAccount, setAddingAccount] = react.useState(false);
+			const [accountError, setAccountError] = react.useState(null);
+			const [accountSuccess, setAccountSuccess] = react.useState(null);
 
 			// Valuation specific states
 			const [activeValuationPeriod, setActiveValuationPeriod] = react.useState("5h"); // '5h' | 'weekly' | 'all'
@@ -551,15 +603,131 @@
 				}
 			}, [t, fetchUsage]);
 
+			const fetchAccounts = react.useCallback(async () => {
+				setLoadingAccounts(true);
+				try {
+					const res = await fetch("/api/antigravity/accounts");
+					if (res.ok) {
+						const data = await res.json();
+						if (data.ok) {
+							setAccountsData({
+								accounts: data.accounts || [],
+								activeAccountId: data.activeAccountId || ""
+							});
+						}
+					}
+				} catch (e) {
+					console.error(e);
+				} finally {
+					setLoadingAccounts(false);
+				}
+			}, []);
+
+			const handleSwitchAccount = react.useCallback(async (id) => {
+				setSwitchingAccountId(id);
+				setAccountError(null);
+				try {
+					const res = await fetch("/api/antigravity/accounts/switch", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ accountId: id })
+					});
+					const data = await res.json();
+					if (data.ok) {
+						setAccountsData(prev => ({
+							...prev,
+							activeAccountId: data.activeAccountId,
+							accounts: data.accounts || prev.accounts
+						}));
+						setAccountSuccess(t("accountSwitched"));
+						setTimeout(() => setAccountSuccess(null), 3500);
+						setQuotaData(null);
+						fetchQuota(true);
+						fetchUsage();
+					} else {
+						setAccountError(data.error || "Failed to switch account");
+					}
+				} catch (e) {
+					setAccountError(e.message || "Network error");
+				} finally {
+					setSwitchingAccountId(null);
+				}
+			}, [t, fetchQuota, fetchUsage]);
+
+			const handleAddAccount = react.useCallback(async () => {
+				if (!newAccountToken.trim()) {
+					setAccountError(t("accountTokenRequired"));
+					return;
+				}
+				setAddingAccount(true);
+				setAccountError(null);
+				try {
+					const res = await fetch("/api/antigravity/accounts", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							name: newAccountName.trim(),
+							refreshToken: newAccountToken.trim(),
+							setActive: true
+						})
+					});
+					const data = await res.json();
+					if (data.ok) {
+						setNewAccountName("");
+						setNewAccountToken("");
+						setAccountsData(prev => ({
+							...prev,
+							activeAccountId: data.activeAccountId,
+							accounts: data.accounts || prev.accounts
+						}));
+						setAccountSuccess(t("accountAdded"));
+						setTimeout(() => setAccountSuccess(null), 3500);
+						setQuotaData(null);
+						fetchQuota(true);
+						fetchUsage();
+					} else {
+						setAccountError(data.error || "Failed to add account");
+					}
+				} catch (e) {
+					setAccountError(e.message || "Network error");
+				} finally {
+					setAddingAccount(false);
+				}
+			}, [newAccountName, newAccountToken, t, fetchQuota, fetchUsage]);
+
+			const handleDeleteAccount = react.useCallback(async (id) => {
+				if (!confirm(t("confirmDeleteAccount"))) return;
+				try {
+					const res = await fetch(`/api/antigravity/accounts/${id}`, {
+						method: "DELETE"
+					});
+					const data = await res.json();
+					if (data.ok) {
+						setAccountsData(prev => ({
+							...prev,
+							activeAccountId: data.activeAccountId,
+							accounts: data.accounts || prev.accounts
+						}));
+						setQuotaData(null);
+						fetchQuota(true);
+					}
+				} catch (e) {
+					console.error(e);
+				}
+			}, [t, fetchQuota]);
+
 			// Auto fetch when opening tab
 			react.useEffect(() => {
+				if (open) {
+					fetchAccounts();
+				}
 				if (open && (activeTab === "quota" || activeTab === "valuation") && !quotaData && state.tokenConfigured) {
 					fetchQuota(false);
 				}
 				if (open && (activeTab === "usage" || activeTab === "valuation") && !usageData) {
 					fetchUsage();
 				}
-			}, [open, activeTab, state.tokenConfigured, quotaData, usageData, fetchQuota, fetchUsage]);
+			}, [open, activeTab, state.tokenConfigured, quotaData, usageData, fetchQuota, fetchUsage, fetchAccounts]);
 
 			// -------------------------------------------------------------
 			// Compute Window & Quota Valuation Calculation
@@ -841,6 +1009,25 @@
 										style: {
 											padding: "8px 16px",
 											fontSize: 13,
+											fontWeight: activeTab === "accounts" ? 600 : 400,
+											color: activeTab === "accounts" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
+											background: "none",
+											border: "none",
+											borderBottom: activeTab === "accounts" ? "2px solid var(--dsw-alias-brand-primary, #0284c7)" : "2px solid transparent",
+											cursor: "pointer",
+											whiteSpace: "nowrap"
+										},
+										onClick: () => {
+											setActiveTab("accounts");
+											fetchAccounts();
+										},
+										children: `👥 ${t("tabAccounts")}${accountsData.accounts.length > 0 ? ` (${accountsData.accounts.length})` : ""}`
+									}),
+									(0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										style: {
+											padding: "8px 16px",
+											fontSize: 13,
 											fontWeight: activeTab === "usage" ? 600 : 400,
 											color: activeTab === "usage" ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)",
 											background: "none",
@@ -925,11 +1112,41 @@
 
 									// Configured: Header Toolbar
 									state.tokenConfigured ? (0, react_jsx_runtime.jsxs)("div", {
-										style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+										style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 },
 										children: [
 											(0, react_jsx_runtime.jsxs)("div", {
-												style: { display: "flex", alignItems: "center", gap: 8 },
+												style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
 												children: [
+													accountsData.accounts.length > 1 ? (0, react_jsx_runtime.jsxs)("div", {
+														style: { display: "flex", alignItems: "center", gap: 4 },
+														children: [
+															(0, react_jsx_runtime.jsx)("span", {
+																style: { fontSize: 11, color: "var(--dsw-alias-label-secondary, #6b7280)", fontWeight: 500 },
+																children: `👥 ${t("quickSwitchLabel")}:`
+															}),
+															(0, react_jsx_runtime.jsx)("select", {
+																style: {
+																	fontSize: 11,
+																	padding: "2px 6px",
+																	borderRadius: 4,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-module-platform, #f3f4f6)",
+																	color: "var(--dsw-alias-label-primary, #111827)",
+																	cursor: "pointer",
+																	outline: "none"
+																},
+																value: accountsData.activeAccountId || "",
+																onChange: (e) => handleSwitchAccount(e.target.value),
+																disabled: switchingAccountId !== null,
+																children: accountsData.accounts.map(acc => (
+																	(0, react_jsx_runtime.jsx)("option", {
+																		value: acc.id,
+																		children: `${acc.name}${acc.email && !acc.name.includes(acc.email) ? ` (${acc.email})` : ""}${acc.active ? " ✓" : ""}`
+																	}, acc.id)
+																))
+															})
+														]
+													}) : null,
 													quotaData?.tier ? (0, react_jsx_runtime.jsxs)("span", {
 														style: { fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "var(--dsw-alias-bg-module-platform, #f3f4f6)", color: "var(--dsw-alias-label-primary, #111827)", fontWeight: 500 },
 														children: [`${t("quotaTier")}: `, quotaData.tier.paidTier || quotaData.tier.name]
@@ -1121,7 +1338,225 @@
 								]
 							}) : null,
 
-							// Tab 2: Usage Statistics View
+							// Tab 2: Accounts Management View
+							activeTab === "accounts" ? (0, react_jsx_runtime.jsxs)("div", {
+								style: { padding: "16px 20px 20px 20px" },
+								children: [
+									// Toast / Notice
+									accountSuccess ? (0, react_jsx_runtime.jsx)("div", {
+										style: { padding: "8px 12px", background: "#dcfce7", color: "#15803d", borderRadius: 6, fontSize: 12, marginBottom: 12, fontWeight: 500 },
+										children: accountSuccess
+									}) : null,
+									accountError ? (0, react_jsx_runtime.jsx)("div", {
+										style: { padding: "8px 12px", background: "#fee2e2", color: "#b91c1c", borderRadius: 6, fontSize: 12, marginBottom: 12, fontWeight: 500 },
+										children: accountError
+									}) : null,
+
+									// Section 1: Configured Accounts List
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: { marginBottom: 20 },
+										children: [
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+												children: [
+													(0, react_jsx_runtime.jsx)("div", {
+														style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" },
+														children: t("accountListTitle")
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: { fontSize: 12, color: "var(--dsw-alias-brand-primary, #0284c7)", background: "none", border: "none", cursor: "pointer" },
+														onClick: () => fetchAccounts(),
+														children: loadingAccounts ? "刷新中…" : "🔄 刷新列表"
+													})
+												]
+											}),
+
+											accountsData.accounts.length === 0 ? (0, react_jsx_runtime.jsx)("div", {
+												style: { padding: "16px", textAlign: "center", background: "var(--dsw-alias-bg-layer-3, #f9fafb)", borderRadius: 8, color: "var(--dsw-alias-label-secondary, #6b7280)", fontSize: 12 },
+												children: t("noAccountsYet")
+											}) : (0, react_jsx_runtime.jsx)("div", {
+												style: { display: "flex", flexDirection: "column", gap: 8 },
+												children: accountsData.accounts.map(acc => (
+													(0, react_jsx_runtime.jsxs)("div", {
+														key: acc.id,
+														style: {
+															display: "flex",
+															justifyContent: "space-between",
+															alignItems: "center",
+															padding: "12px 14px",
+															borderRadius: 8,
+															border: acc.active ? "1.5px solid var(--dsw-alias-brand-primary, #0284c7)" : "1px solid var(--dsw-alias-border-l2, #e5e7eb)",
+															background: acc.active ? "var(--dsw-alias-bg-module-platform, #f0f9ff)" : "var(--dsw-alias-bg-layer-3, #f9fafb)",
+															flexWrap: "wrap",
+															gap: 10
+														},
+														children: [
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { display: "flex", flexDirection: "column", gap: 4 },
+																children: [
+																	(0, react_jsx_runtime.jsxs)("div", {
+																		style: { display: "flex", alignItems: "center", gap: 8 },
+																		children: [
+																			(0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" },
+																				children: acc.name
+																			}),
+																			acc.active ? (0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "#dcfce7", color: "#16a34a", fontWeight: 500 },
+																				children: t("currentActiveBadge")
+																			}) : (0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "#f3f4f6", color: "#6b7280" },
+																				children: t("backupBadge")
+																			})
+																		]
+																	}),
+																	(0, react_jsx_runtime.jsxs)("div", {
+																		style: { display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--dsw-alias-label-secondary, #6b7280)", flexWrap: "wrap" },
+																		children: [
+																			acc.email ? (0, react_jsx_runtime.jsx)("span", { children: `📧 ${acc.email}` }) : null,
+																			acc.tier ? (0, react_jsx_runtime.jsx)("span", { children: `🎖️ ${acc.tier}` }) : null,
+																			acc.project ? (0, react_jsx_runtime.jsx)("span", { children: `📁 ${acc.project}` }) : null,
+																			acc.tokenMasked ? (0, react_jsx_runtime.jsx)("span", { style: { fontFamily: "monospace" }, children: `🔑 ${acc.tokenMasked}` }) : null
+																		]
+																	})
+																]
+															}),
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { display: "flex", alignItems: "center", gap: 8 },
+																children: [
+																	!acc.active ? (0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: {
+																			padding: "5px 12px",
+																			fontSize: 12,
+																			borderRadius: 6,
+																			border: "none",
+																			background: "var(--dsw-alias-brand-primary, #0284c7)",
+																			color: "#ffffff",
+																			cursor: "pointer",
+																			fontWeight: 500
+																		},
+																		disabled: switchingAccountId === acc.id,
+																		onClick: () => handleSwitchAccount(acc.id),
+																		children: switchingAccountId === acc.id ? t("switching") : t("switchAccount")
+																	}) : null,
+																	(0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: {
+																			padding: "4px 8px",
+																			fontSize: 12,
+																			borderRadius: 6,
+																			border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																			background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																			color: "#dc2626",
+																			cursor: "pointer"
+																		},
+																		title: t("deleteAccount"),
+																		onClick: () => handleDeleteAccount(acc.id),
+																		children: "🗑️"
+																	})
+																]
+															})
+														]
+													})
+												))
+											})
+										]
+									}),
+
+									// Section 2: Add New Account Form
+									(0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											padding: "16px",
+											borderRadius: 8,
+											background: "var(--dsw-alias-bg-layer-3, #f9fafb)",
+											border: "1px solid var(--dsw-alias-border-l2, #e5e7eb)"
+										},
+										children: [
+											(0, react_jsx_runtime.jsx)("div", {
+												style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)", marginBottom: 12 },
+												children: `➕ ${t("addAccount")}`
+											}),
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", flexDirection: "column", gap: 10 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsx)("label", {
+																style: { display: "block", fontSize: 12, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																children: t("accountNameLabel")
+															}),
+															(0, react_jsx_runtime.jsx)("input", {
+																type: "text",
+																value: newAccountName,
+																onChange: (e) => setNewAccountName(e.target.value),
+																placeholder: t("accountNamePlaceholder"),
+																style: {
+																	width: "100%",
+																	padding: "8px 10px",
+																	fontSize: 12,
+																	borderRadius: 6,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																	color: "var(--dsw-alias-label-primary, #111827)",
+																	boxSizing: "border-box"
+																}
+															})
+														]
+													}),
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsx)("label", {
+																style: { display: "block", fontSize: 12, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																children: `${t("accountTokenLabel")} *`
+															}),
+															(0, react_jsx_runtime.jsx)("textarea", {
+																rows: 2,
+																value: newAccountToken,
+																onChange: (e) => setNewAccountToken(e.target.value),
+																placeholder: t("accountTokenPlaceholder"),
+																style: {
+																	width: "100%",
+																	padding: "8px 10px",
+																	fontSize: 12,
+																	borderRadius: 6,
+																	border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																	background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																	color: "var(--dsw-alias-label-primary, #111827)",
+																	fontFamily: "monospace",
+																	boxSizing: "border-box",
+																	resize: "vertical"
+																}
+															})
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															alignSelf: "flex-start",
+															padding: "8px 18px",
+															fontSize: 12,
+															fontWeight: 500,
+															borderRadius: 6,
+															border: "none",
+															background: "var(--dsw-alias-brand-primary, #0284c7)",
+															color: "#ffffff",
+															cursor: addingAccount ? "not-allowed" : "pointer",
+															opacity: addingAccount ? 0.7 : 1
+														},
+														disabled: addingAccount,
+														onClick: handleAddAccount,
+														children: addingAccount ? t("addingAccount") : `✓ ${t("addAccount")}`
+													})
+												]
+											})
+										]
+									})
+								]
+							}) : null,
+
+							// Tab 3: Usage Statistics View
 							activeTab === "usage" ? (0, react_jsx_runtime.jsxs)("div", {
 								style: { padding: "16px 20px 20px 20px" },
 								children: [
@@ -2154,6 +2589,11 @@
 								ref: TOKEN_REF,
 								value: this.draftToken.trim()
 							});
+						}
+						try {
+							await fetch("/api/antigravity/reset", { method: "POST" });
+						} catch (err) {
+							console.error("[antigravity] reset call failed:", err);
 						}
 						this.tokenConfigured = true;
 						this.draftToken = void 0;

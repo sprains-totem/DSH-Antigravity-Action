@@ -136,6 +136,329 @@ function getUsageFilePath() {
   return path.join(process.cwd(), 'antigravity_usage.json')
 }
 
+// ---------------------------------------------------------------------------
+// Multi-Account Management & Persistence
+// ---------------------------------------------------------------------------
+function getAccountsFilePath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE
+  if (homeDir) {
+    const dshPath = path.join(homeDir, '.dsh', 'antigravity_accounts.json')
+    const cwdPath = path.join(process.cwd(), 'antigravity_accounts.json')
+    if (fs.existsSync(dshPath)) return dshPath
+    if (fs.existsSync(cwdPath)) return cwdPath
+    return dshPath
+  }
+  return path.join(process.cwd(), 'antigravity_accounts.json')
+}
+
+function maskToken(token) {
+  if (!token || typeof token !== 'string') return ''
+  const trimmed = token.trim()
+  if (trimmed.length <= 10) return '******'
+  return trimmed.slice(0, 6) + '...' + trimmed.slice(-4)
+}
+
+async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clientSecret = CLIENT_SECRET) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken.trim(),
+    grant_type: 'refresh_token',
+  })
+  let res
+  try {
+    res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...attributionHeaders() },
+      body: params.toString(),
+    })
+  } catch (err) {
+    throw new Error(`Google OAuth 连接失败: ${err.message || String(err)}`)
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Google OAuth 验证失败 (HTTP ${res.status}): ${body.slice(0, 180)}`)
+  }
+  const data = await res.json()
+  const accessToken = data.access_token
+  if (!accessToken) throw new Error('Google OAuth 未返回有效 access_token')
+
+  let email = ''
+  let tier = 'Google AI Pro'
+  let project = 'default'
+
+  try {
+    const lcaRes = await fetch(LOAD_CODE_ASSIST_URL, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+        ...attributionHeaders(),
+        'user-agent': OFFICIAL_USER_AGENT,
+      },
+      body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
+    })
+    if (lcaRes.ok) {
+      const lca = await lcaRes.json()
+      if (lca.cloudaicompanionProject) project = lca.cloudaicompanionProject
+      if (lca.currentTier?.name || lca.paidTier?.name) {
+        tier = lca.paidTier?.name || lca.currentTier?.name
+      }
+      const uri = lca.currentTier?.upgradeSubscriptionUri || lca.upgradeSubscriptionUri || ''
+      if (uri) {
+        try {
+          const u = new URL(uri)
+          const mail = u.searchParams.get('Email') || u.searchParams.get('email')
+          if (mail) email = mail
+        } catch {}
+      }
+    }
+  } catch {}
+
+  if (!email) {
+    try {
+      const uinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { authorization: `Bearer ${accessToken}` }
+      })
+      if (uinfoRes.ok) {
+        const uinfo = await uinfoRes.json()
+        if (uinfo.email) email = uinfo.email
+      }
+    } catch {}
+  }
+
+  return { email, tier, project, accessToken }
+}
+
+class AccountsManager {
+  constructor(ctx, onActiveAccountChange) {
+    this.ctx = ctx
+    this.onActiveAccountChange = onActiveAccountChange
+    this.data = this.load()
+  }
+
+  reload() {
+    this.data = this.load()
+    return this.data
+  }
+
+  load() {
+    const filePath = getAccountsFilePath()
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8')
+        const data = JSON.parse(raw)
+        return {
+          activeAccountId: typeof data.activeAccountId === 'string' ? data.activeAccountId : '',
+          accounts: Array.isArray(data.accounts) ? data.accounts : [],
+        }
+      }
+    } catch {}
+    return {
+      activeAccountId: '',
+      accounts: [],
+    }
+  }
+
+  save() {
+    try {
+      const filePath = getAccountsFilePath()
+      const dir = path.dirname(filePath)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(filePath, JSON.stringify(this.data, null, 2), 'utf8')
+    } catch (e) {
+      console.error('[antigravity] Failed to save accounts:', e)
+    }
+  }
+
+  async ensureInitialized(seedRefreshToken) {
+    if (this.data.accounts.length > 0) {
+      if (!this.data.activeAccountId) {
+        this.data.activeAccountId = this.data.accounts[0].id
+        this.save()
+      }
+      return
+    }
+    if (!seedRefreshToken || typeof seedRefreshToken !== 'string' || seedRefreshToken.trim().length === 0) return
+    const token = seedRefreshToken.trim()
+    const id = 'acc_' + Date.now().toString(36)
+    let email = ''
+    let tier = 'Google AI Pro'
+    let project = 'aicode-consumers'
+    try {
+      const meta = await validateAndFetchMetadata(token)
+      if (meta.email) email = meta.email
+      if (meta.tier) tier = meta.tier
+      if (meta.project) project = meta.project
+    } catch {}
+    const defaultAcc = {
+      id,
+      name: email ? `账号 (${email})` : '默认账号',
+      email,
+      tier,
+      project,
+      refreshToken: token,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    this.data.accounts.push(defaultAcc)
+    this.data.activeAccountId = id
+    this.save()
+  }
+
+  async syncFromCredential(forceToken) {
+    let token = forceToken
+    if (!token) {
+      const ref = this.ctx.get?.('connection')?.refreshTokenEnv || 'ANTIGRAVITY_REFRESH_TOKEN'
+      const creds = this.ctx.get?.('credentials')
+      if (creds) {
+        try {
+          const hit = await creds.resolve(ref)
+          token = hit?.value || ''
+        } catch {}
+      }
+      if (!token) {
+        try {
+          const env = launchEnvironmentOf(this.ctx)
+          const ambient = env.get(ref)
+          token = ambient?.value || ''
+        } catch {}
+      }
+      if (!token && process.env[ref]) {
+        token = process.env[ref]
+      }
+    }
+    if (!token || typeof token !== 'string' || token.trim().length === 0) return
+    token = token.trim()
+    if (this.data.accounts.length === 0) {
+      await this.ensureInitialized(token)
+    } else {
+      const active = this.getActiveAccount()
+      if (active && active.refreshToken !== token) {
+        const existing = this.data.accounts.find(a => a.refreshToken === token)
+        if (existing) {
+          await this.switchAccount(existing.id)
+        } else {
+          await this.updateAccount(active.id, { refreshToken: token })
+        }
+      }
+    }
+  }
+
+  getAccountsView() {
+    this.reload()
+    return this.data.accounts.map((acc) => ({
+      id: acc.id,
+      name: acc.name,
+      email: acc.email || '',
+      tier: acc.tier || '',
+      project: acc.project || '',
+      active: acc.id === this.data.activeAccountId,
+      tokenMasked: maskToken(acc.refreshToken),
+      hasToken: Boolean(acc.refreshToken && acc.refreshToken.length > 0),
+      createdAt: acc.createdAt,
+      updatedAt: acc.updatedAt,
+    }))
+  }
+
+  getActiveAccount() {
+    this.reload()
+    if (!this.data.activeAccountId && this.data.accounts.length > 0) {
+      this.data.activeAccountId = this.data.accounts[0].id
+    }
+    return this.data.accounts.find((a) => a.id === this.data.activeAccountId) || null
+  }
+
+  async switchAccount(id) {
+    this.reload()
+    const acc = this.data.accounts.find((a) => a.id === id)
+    if (!acc) throw new Error(`找不到指定的账号: ${id}`)
+    this.data.activeAccountId = id
+    this.save()
+    if (this.onActiveAccountChange) {
+      await this.onActiveAccountChange(acc)
+    }
+    return acc
+  }
+
+  async addAccount({ name, refreshToken, setActive = false }) {
+    this.reload()
+    if (!refreshToken || typeof refreshToken !== 'string' || refreshToken.trim().length === 0) {
+      throw new Error('Refresh Token 不能为空')
+    }
+    const token = refreshToken.trim()
+    const meta = await validateAndFetchMetadata(token)
+    const id = 'acc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+    const acc = {
+      id,
+      name: name && name.trim().length > 0 ? name.trim() : (meta.email ? `账号 (${meta.email})` : `账号 ${this.data.accounts.length + 1}`),
+      email: meta.email || '',
+      tier: meta.tier || 'Google AI Pro',
+      project: meta.project || 'aicode-consumers',
+      refreshToken: token,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    this.data.accounts.push(acc)
+    if (setActive || this.data.accounts.length === 1 || !this.data.activeAccountId) {
+      this.data.activeAccountId = id
+      if (this.onActiveAccountChange) {
+        await this.onActiveAccountChange(acc)
+      }
+    }
+    this.save()
+    return acc
+  }
+
+  async updateAccount(id, { name, refreshToken }) {
+    this.reload()
+    const acc = this.data.accounts.find((a) => a.id === id)
+    if (!acc) throw new Error(`找不到指定的账号: ${id}`)
+    if (name && typeof name === 'string' && name.trim().length > 0) {
+      acc.name = name.trim()
+    }
+    if (refreshToken && typeof refreshToken === 'string' && refreshToken.trim().length > 0) {
+      const token = refreshToken.trim()
+      if (token !== acc.refreshToken) {
+        const meta = await validateAndFetchMetadata(token)
+        acc.refreshToken = token
+        if (meta.email) acc.email = meta.email
+        if (meta.tier) acc.tier = meta.tier
+        if (meta.project) acc.project = meta.project
+      }
+    }
+    acc.updatedAt = Date.now()
+    this.save()
+    if (acc.id === this.data.activeAccountId && this.onActiveAccountChange) {
+      await this.onActiveAccountChange(acc)
+    }
+    return acc
+  }
+
+  async deleteAccount(id) {
+    this.reload()
+    const idx = this.data.accounts.findIndex((a) => a.id === id)
+    if (idx === -1) throw new Error(`找不到指定的账号: ${id}`)
+    const wasActive = this.data.accounts[idx].id === this.data.activeAccountId
+    this.data.accounts.splice(idx, 1)
+    if (wasActive) {
+      if (this.data.accounts.length > 0) {
+        this.data.activeAccountId = this.data.accounts[0].id
+        if (this.onActiveAccountChange) {
+          await this.onActiveAccountChange(this.data.accounts[0])
+        }
+      } else {
+        this.data.activeAccountId = ''
+        if (this.onActiveAccountChange) {
+          await this.onActiveAccountChange(null)
+        }
+      }
+    }
+    this.save()
+    return { ok: true }
+  }
+}
+
 class UsageTracker {
   constructor() {
     this.stats = this.load()
@@ -435,14 +758,22 @@ class QuotaService {
     this.cache = null
     this.cacheExpiresAt = 0
     this.fetchPromise = null
+    this.cachedAccessToken = null
+  }
+
+  clearCache() {
+    this.cache = null
+    this.cacheExpiresAt = 0
+    this.fetchPromise = null
+    this.cachedAccessToken = null
   }
 
   async getQuota(accessToken, baseURL, project, force = false) {
     const now = Date.now()
-    if (!force && this.cache && now < this.cacheExpiresAt) {
+    if (!force && this.cache && this.cachedAccessToken === accessToken && now < this.cacheExpiresAt) {
       return this.cache
     }
-    if (this.fetchPromise) return this.fetchPromise
+    if (this.fetchPromise && this.cachedAccessToken === accessToken) return this.fetchPromise
 
     this.fetchPromise = (async () => {
       try {
@@ -542,6 +873,7 @@ class QuotaService {
         }
 
         this.cache = result
+        this.cachedAccessToken = accessToken
         this.cacheExpiresAt = Date.now() + 15_000 // 15s cache
         return result
       } finally {
@@ -1496,13 +1828,27 @@ async function httpError(response, context) {
 // Adapter
 // ---------------------------------------------------------------------------
 class AntigravityAdapter extends LlmAdapter {
-  constructor(config, usageTracker) {
+  constructor(config, usageTracker, quotaService) {
     super()
     this.config = config
     this.usageTracker = usageTracker
+    this.quotaService = quotaService
     this.token = undefined
     this.refreshing = undefined
     this.project = undefined
+    this.projectAccessToken = undefined
+    this.lastRefreshToken = undefined
+  }
+
+  resetRuntimeState() {
+    this.token = undefined
+    this.refreshing = undefined
+    this.project = undefined
+    this.projectAccessToken = undefined
+    this.lastRefreshToken = undefined
+    if (this.quotaService) {
+      this.quotaService.clearCache()
+    }
   }
 
   providerInfo(provider) {
@@ -1544,12 +1890,19 @@ class AntigravityAdapter extends LlmAdapter {
   /** Exchange the refresh token for a fresh access token (cached, 900s skew). */
   async ensureAccessToken() {
     const connection = this.config.options()
+    const refreshToken = await this.config.resolveRefreshToken(connection)
+
+    // Self-healing check: if the refresh token changed, invalidate all runtime cached state
+    if (this.lastRefreshToken !== undefined && this.lastRefreshToken !== refreshToken) {
+      this.resetRuntimeState()
+    }
+    this.lastRefreshToken = refreshToken
+
     if (this.token !== undefined && this.token.expiresAt > Date.now() + TOKEN_REFRESH_SKEW_MS) {
       return this.token.accessToken
     }
     if (this.refreshing !== undefined) return this.refreshing
     this.refreshing = (async () => {
-      const refreshToken = await this.config.resolveRefreshToken(connection)
       const params = new URLSearchParams({
         client_id: connection.clientId,
         client_secret: connection.clientSecret,
@@ -1595,7 +1948,7 @@ class AntigravityAdapter extends LlmAdapter {
   async ensureProject(accessToken) {
     const connection = this.config.options()
     if (connection.project !== undefined && connection.project.length > 0) return connection.project
-    if (this.project !== undefined) return this.project
+    if (this.projectAccessToken === accessToken && this.project !== undefined) return this.project
     try {
       const response = await fetch(LOAD_CODE_ASSIST_URL, {
         method: 'POST',
@@ -1612,11 +1965,13 @@ class AntigravityAdapter extends LlmAdapter {
         const project = data.cloudaicompanionProject
         if (typeof project === 'string' && project.length > 0) {
           this.project = project
+          this.projectAccessToken = accessToken
           return project
         }
       }
     } catch { /* fall back below */ }
     this.project = 'default'
+    this.projectAccessToken = accessToken
     return this.project
   }
 
@@ -1817,18 +2172,60 @@ function apply(ctx, config) {
   applyReadAudioTool(ctx)
   applyReadPdfTool(ctx)
 
+  const usageTracker = new UsageTracker()
+  const quotaService = new QuotaService()
+
+  let adapter = null
+
+  const accountsManager = new AccountsManager(ctx, async (activeAccount) => {
+    if (adapter) {
+      adapter.resetRuntimeState()
+    }
+    quotaService.clearCache()
+    try {
+      const credentials = ctx.get('credentials')
+      if (credentials && typeof credentials.set === 'function') {
+        const ref = options().refreshTokenEnv || 'ANTIGRAVITY_REFRESH_TOKEN'
+        if (activeAccount && activeAccount.refreshToken) {
+          await credentials.set(ref, activeAccount.refreshToken)
+        }
+      }
+    } catch {}
+  })
+
+  // Watch for credential updates on the backend if the credentials service is mounted
+  ctx.inject(['credentials'], (credCtx) => {
+    try {
+      credCtx.credentials?.on?.('update', (ref) => {
+        const currentRef = options().refreshTokenEnv || 'ANTIGRAVITY_REFRESH_TOKEN'
+        if (ref === currentRef && adapter) {
+          adapter.resetRuntimeState()
+        }
+      })
+    } catch {}
+  })
+
   const resolveRefreshToken = async (connection) => {
+    // 1. Try active account from AccountsManager
+    const activeAcc = accountsManager.getActiveAccount()
+    if (activeAcc && activeAcc.refreshToken) {
+      return activeAcc.refreshToken
+    }
+    // 2. Fall back to credentials service
     const ref = connection.refreshTokenEnv ?? 'ANTIGRAVITY_REFRESH_TOKEN'
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
       if (hit !== undefined && hit.value !== undefined && hit.value.length > 0) {
+        accountsManager.ensureInitialized(hit.value).catch(() => {})
         return assertUsableApiKey(hit.value, 'llm-antigravity', ref)
       }
     }
+    // 3. Fall back to launch environment
     const env = launchEnvironmentOf(ctx)
     const ambient = env.get(ref)
     if (ambient !== undefined && ambient.value !== undefined && ambient.value.length > 0) {
+      accountsManager.ensureInitialized(ambient.value).catch(() => {})
       return assertUsableApiKey(ambient.value, 'llm-antigravity', ref)
     }
     throw new LlmError(
@@ -1837,20 +2234,13 @@ function apply(ctx, config) {
     )
   }
 
-  const usageTracker = new UsageTracker()
-  const quotaService = new QuotaService()
-
-  const adapter = new AntigravityAdapter({
+  adapter = new AntigravityAdapter({
     options,
     resolveRefreshToken,
-    // The durable attachment service, resolved lazily so image blocks can be
-    // serialized as inlineData. Undefined when the service is not mounted —
-    // then image blocks are skipped (text-only fallback), like pi-ai's
-    // "requires the durable attachment service" guard.
     resolveAttachments: () => ctx.get('attachments'),
-  }, usageTracker)
+  }, usageTracker, quotaService)
 
-  // Register WebServer routes for live quota and usage statistics when available
+  // Register WebServer routes for accounts, live quota and usage statistics
   ctx.inject(['webServer'], (httpCtx) => {
     try {
       httpCtx.webServer.register({
@@ -1858,7 +2248,7 @@ function apply(ctx, config) {
         path: '/api/antigravity',
         handler: async (req, res) => {
           res.setHeader('Access-Control-Allow-Origin', '*')
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
           if (req.method === 'OPTIONS') {
             res.writeHead(204)
@@ -1868,6 +2258,184 @@ function apply(ctx, config) {
 
           const url = new URL(req.url ?? '/', 'http://localhost')
           const pathName = url.pathname.replace(/\/+$/, '')
+
+          const readJsonBody = async () => {
+            return new Promise((resolve, reject) => {
+              let body = ''
+              req.on('data', (chunk) => { body += chunk })
+              req.on('end', () => {
+                try {
+                  resolve(body ? JSON.parse(body) : {})
+                } catch (e) {
+                  reject(new Error('Invalid JSON body'))
+                }
+              })
+              req.on('error', reject)
+            })
+          }
+
+          // Accounts endpoints:
+          // GET /api/antigravity/accounts
+          if (pathName === '/api/antigravity/accounts' && req.method === 'GET') {
+            const ref = options().refreshTokenEnv || 'ANTIGRAVITY_REFRESH_TOKEN'
+            let seedToken = ''
+            const creds = ctx.get('credentials')
+            if (creds) {
+              try {
+                const hit = await creds.resolve(ref)
+                seedToken = hit?.value || ''
+              } catch {}
+            }
+            if (!seedToken) {
+              try {
+                const env = launchEnvironmentOf(ctx)
+                const ambient = env.get(ref)
+                seedToken = ambient?.value || ''
+              } catch {}
+            }
+            if (!seedToken && process.env[ref]) {
+              seedToken = process.env[ref]
+            }
+            if (seedToken) {
+              await accountsManager.ensureInitialized(seedToken)
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({
+              ok: true,
+              activeAccountId: accountsManager.data.activeAccountId,
+              accounts: accountsManager.getAccountsView()
+            }))
+            return
+          }
+
+          // POST /api/antigravity/accounts (Add account)
+          if (pathName === '/api/antigravity/accounts' && req.method === 'POST') {
+            try {
+              const body = await readJsonBody()
+              const acc = await accountsManager.addAccount({
+                name: body.name,
+                refreshToken: body.refreshToken,
+                setActive: body.setActive ?? false,
+              })
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({
+                ok: true,
+                account: {
+                  id: acc.id,
+                  name: acc.name,
+                  email: acc.email,
+                  tier: acc.tier,
+                  project: acc.project,
+                  active: acc.id === accountsManager.data.activeAccountId,
+                  tokenMasked: maskToken(acc.refreshToken),
+                  hasToken: true,
+                },
+                activeAccountId: accountsManager.data.activeAccountId,
+                accounts: accountsManager.getAccountsView()
+              }))
+            } catch (err) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+            }
+            return
+          }
+
+          // POST /api/antigravity/accounts/switch (Switch active account)
+          if (pathName === '/api/antigravity/accounts/switch' && req.method === 'POST') {
+            try {
+              const body = await readJsonBody()
+              const acc = await accountsManager.switchAccount(body.accountId)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({
+                ok: true,
+                activeAccountId: accountsManager.data.activeAccountId,
+                activeAccount: acc ? {
+                  id: acc.id,
+                  name: acc.name,
+                  email: acc.email,
+                  tier: acc.tier,
+                  project: acc.project,
+                } : null,
+                accounts: accountsManager.getAccountsView()
+              }))
+            } catch (err) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+            }
+            return
+          }
+
+          // POST /api/antigravity/accounts/validate (Validate token without saving)
+          if (pathName === '/api/antigravity/accounts/validate' && req.method === 'POST') {
+            try {
+              const body = await readJsonBody()
+              const connection = options()
+              const meta = await validateAndFetchMetadata(body.refreshToken, connection.clientId, connection.clientSecret)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, ...meta }))
+            } catch (err) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+            }
+            return
+          }
+
+          // PUT /api/antigravity/accounts/:id or DELETE /api/antigravity/accounts/:id
+          const accountMatch = pathName.match(/^\/api\/antigravity\/accounts\/([a-zA-Z0-9_-]+)$/)
+          if (accountMatch) {
+            const accId = accountMatch[1]
+            if (req.method === 'PUT') {
+              try {
+                const body = await readJsonBody()
+                const acc = await accountsManager.updateAccount(accId, body)
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({
+                  ok: true,
+                  account: {
+                    id: acc.id,
+                    name: acc.name,
+                    email: acc.email,
+                    tier: acc.tier,
+                    project: acc.project,
+                    active: acc.id === accountsManager.data.activeAccountId,
+                    tokenMasked: maskToken(acc.refreshToken),
+                    hasToken: true,
+                  },
+                  activeAccountId: accountsManager.data.activeAccountId,
+                  accounts: accountsManager.getAccountsView()
+                }))
+              } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+              }
+              return
+            }
+            if (req.method === 'DELETE') {
+              try {
+                await accountsManager.deleteAccount(accId)
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({
+                  ok: true,
+                  activeAccountId: accountsManager.data.activeAccountId,
+                  accounts: accountsManager.getAccountsView()
+                }))
+              } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ ok: false, error: err.message || String(err) }))
+              }
+              return
+            }
+          }
+
+          // POST /api/antigravity/reset (Reset adapter & quota runtime state)
+          if (pathName === '/api/antigravity/reset' && req.method === 'POST') {
+            if (adapter) adapter.resetRuntimeState()
+            quotaService.clearCache()
+            await accountsManager.syncFromCredential()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: true, message: 'Runtime state reset' }))
+            return
+          }
 
           if (pathName === '/api/antigravity/usage') {
             if (req.method === 'DELETE') {
@@ -1886,8 +2454,24 @@ function apply(ctx, config) {
           if (pathName === '/api/antigravity/quota') {
             try {
               const connection = options()
-              const accessToken = await adapter.ensureAccessToken()
-              const project = await adapter.ensureProject(accessToken)
+              const accountId = url.searchParams.get('accountId')
+              let targetToken = null
+              if (accountId) {
+                const targetAcc = accountsManager.data.accounts.find(a => a.id === accountId)
+                if (targetAcc && targetAcc.refreshToken) {
+                  targetToken = targetAcc.refreshToken
+                }
+              }
+              let accessToken
+              let project
+              if (targetToken && targetToken !== adapter.lastRefreshToken) {
+                const meta = await validateAndFetchMetadata(targetToken, connection.clientId, connection.clientSecret)
+                accessToken = meta.accessToken
+                project = meta.project
+              } else {
+                accessToken = await adapter.ensureAccessToken()
+                project = await adapter.ensureProject(accessToken)
+              }
               const force = url.searchParams.get('force') === 'true' || req.method === 'POST'
               const quota = await quotaService.getQuota(accessToken, connection.baseURL, project, force)
               res.writeHead(200, { 'Content-Type': 'application/json' })
