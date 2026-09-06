@@ -68,23 +68,21 @@
 		const react = require("react");
 		const _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 		const _deepseek_ai_dsh_client_runtime_client = (() => {
-			try { return require("@deepseek-ai/dsh-client-store"); }
-			catch {
-				try { return require("@deepseek-ai/dsh-client-runtime/client"); }
-				catch {
+			try {
+				const mod = require("@deepseek-ai/dsh-client-store");
+				if (mod && typeof mod.createSnapshotStore === "function") return mod;
+			} catch (e) {}
+			return {
+				createSnapshotStore: (init) => {
+					let s = init;
+					const subs = new Set();
 					return {
-						createSnapshotStore: (init) => {
-							let s = init;
-							const subs = new Set();
-							return {
-								get: () => s,
-								set: (n) => { s = n; subs.forEach((cb) => cb()); },
-								subscribe: (cb) => { subs.add(cb); return () => subs.delete(cb); }
-							};
-						}
+						get: () => s,
+						set: (n) => { s = n; subs.forEach((cb) => cb()); },
+						subscribe: (cb) => { subs.add(cb); return () => subs.delete(cb); }
 					};
 				}
-			}
+			};
 		})();
 
 		function CloudflareTunnelCard(props) {
