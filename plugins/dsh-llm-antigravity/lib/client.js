@@ -125,7 +125,24 @@
 		deltaModeBadge: "Delta Calibration",
 		deltaModeHint: "Initial quota was non-full. Extrapolating via marginal quota deduction.",
 		setBaselineBtn: "Set Current as Baseline",
-		baselineSetToast: "Current quota set as calibration baseline"
+		baselineSetToast: "Current quota set as calibration baseline",
+
+		// Multi-Account Estimation
+		accountFilterAll: "All Accounts (Aggregated)",
+		accountFilterLabel: "Account",
+		accountCol: "Account",
+		valuationMatrixTitle: "Multi-Account Estimation Matrix",
+		valuationMatrixDesc: "Cross-account estimation comparison based on current window usage and live remaining quota.",
+		refreshAllAccounts: "Refresh All",
+		accountActions: "Action",
+		windowUsedUsd: "Used USD",
+		windowTokens: "Tokens",
+		remainingQuotaPct: "Remaining Quota",
+		estTotalValue: "Est. Total Value",
+		estRemainingValue: "Est. Remaining Value",
+		switchToAccount: "Switch",
+		currentActiveTag: "Active",
+		unassignedAccount: "Legacy / Unassigned"
 	};
 
 	const zh = {
@@ -251,7 +268,24 @@
 		deltaModeBadge: "增量差分校准",
 		deltaModeHint: "接入时初始额度非满额，系统自动依据本地实际产生的额度变化差分精准推算。",
 		setBaselineBtn: "设当前为测算基准",
-		baselineSetToast: "已记录当前剩余比例为新测算基准点"
+		baselineSetToast: "已记录当前剩余比例为新测算基准点",
+
+		// Multi-Account Estimation
+		accountFilterAll: "全部账号汇总",
+		accountFilterLabel: "账号",
+		accountCol: "账号",
+		valuationMatrixTitle: "多账号历史额度估算对比面板",
+		valuationMatrixDesc: "基于各账号在当前时间窗口内的实际消耗与实时剩余配额，综合推算各账号的周期总价值与剩余价值。",
+		refreshAllAccounts: "刷新全部",
+		accountActions: "操作",
+		windowUsedUsd: "窗口消耗金额",
+		windowTokens: "总消耗 Tokens",
+		remainingQuotaPct: "剩余额度",
+		estTotalValue: "预估周期总价值",
+		estRemainingValue: "预估剩余可用价值",
+		switchToAccount: "切换生效",
+		currentActiveTag: "当前生效",
+		unassignedAccount: "历史未标记"
 	};
 
 	const DEFAULT_MODEL_PRICING = {
@@ -401,6 +435,9 @@
 			// Valuation specific states
 			const [activeValuationPeriod, setActiveValuationPeriod] = react.useState("5h"); // '5h' | 'weekly' | 'all'
 			const [selectedGroupFilter, setSelectedGroupFilter] = react.useState("all"); // 'all' | 'gemini' | '3p'
+			const [selectedValuationAccount, setSelectedValuationAccount] = react.useState("all"); // 'all' | accountId
+			const [selectedUsageAccount, setSelectedUsageAccount] = react.useState("all"); // 'all' | accountId
+			const [externalAccountQuotas, setExternalAccountQuotas] = react.useState({}); // { [accountId]: quotaData }
 			const [showAllCatalogModels, setShowAllCatalogModels] = react.useState(false);
 			const [pricingSavedToast, setPricingSavedToast] = react.useState(false);
 			const [baselineToast, setBaselineToast] = react.useState(false);
@@ -467,11 +504,38 @@
 				setTimeout(() => setPricingSavedToast(false), 2000);
 			};
 
-			const handleSetCurrentAsBaseline = (bucketId, fraction, resetTime) => {
+			const getBaselineKey = (accId, bucketId) => `${accId || "default"}_${bucketId}`;
+
+			const fetchAccountQuota = react.useCallback(async (accId) => {
+				if (!accId || accId === "all") return;
+				try {
+					const res = await fetch(`/api/antigravity/quota?accountId=${encodeURIComponent(accId)}`);
+					if (res.ok) {
+						const json = await res.json();
+						if (json.ok) {
+							setExternalAccountQuotas(prev => ({ ...prev, [accId]: json }));
+						}
+					}
+				} catch {}
+			}, []);
+
+			react.useEffect(() => {
+				if (open && activeTab === "valuation" && accountsData.accounts.length > 1) {
+					accountsData.accounts.forEach(acc => {
+						if (acc.id !== accountsData.activeAccountId && !externalAccountQuotas[acc.id]) {
+							fetchAccountQuota(acc.id);
+						}
+					});
+				}
+			}, [open, activeTab, accountsData.accounts, accountsData.activeAccountId, externalAccountQuotas, fetchAccountQuota]);
+
+			const handleSetCurrentAsBaseline = (bucketId, fraction, resetTime, accId) => {
 				if (!bucketId) return;
+				const curAcc = accId || (selectedValuationAccount !== "all" ? selectedValuationAccount : (accountsData.activeAccountId || "default"));
+				const k = getBaselineKey(curAcc, bucketId);
 				const next = {
 					...quotaBaselines,
-					[bucketId]: {
+					[k]: {
 						resetTime: resetTime || "",
 						baselineFraction: typeof fraction === "number" ? fraction : 1.0,
 						firstSeenTime: Date.now()
@@ -489,15 +553,20 @@
 
 			// Automatically register initial quota baseline if not yet recorded for this cycle
 			react.useEffect(() => {
-				if (!quotaData || !Array.isArray(quotaData.groups)) return;
+				const effectiveQuota = (selectedValuationAccount !== "all" && selectedValuationAccount !== accountsData.activeAccountId && externalAccountQuotas[selectedValuationAccount])
+					? externalAccountQuotas[selectedValuationAccount]
+					: quotaData;
+				if (!effectiveQuota || !Array.isArray(effectiveQuota.groups)) return;
+				const curAcc = selectedValuationAccount !== "all" ? selectedValuationAccount : (accountsData.activeAccountId || "default");
 				let changed = false;
 				const next = { ...quotaBaselines };
-				for (const g of quotaData.groups) {
+				for (const g of effectiveQuota.groups) {
 					for (const b of (g.buckets || [])) {
 						if (!b.bucketId) continue;
-						const cur = next[b.bucketId];
+						const k = getBaselineKey(curAcc, b.bucketId);
+						const cur = next[k] || next[b.bucketId];
 						if (!cur || cur.resetTime !== b.resetTime) {
-							next[b.bucketId] = {
+							next[k] = {
 								resetTime: b.resetTime,
 								baselineFraction: typeof b.remainingFraction === "number" ? b.remainingFraction : 1.0,
 								firstSeenTime: Date.now()
@@ -514,7 +583,7 @@
 						}
 					} catch (e) {}
 				}
-			}, [quotaData, quotaBaselines]);
+			}, [quotaData, externalAccountQuotas, selectedValuationAccount, accountsData.activeAccountId, quotaBaselines]);
 
 			const fetchQuota = react.useCallback(async (force = false) => {
 				if (!state.tokenConfigured) return;
@@ -553,11 +622,13 @@
 				}
 			}, [state.tokenConfigured]);
 
-			const fetchUsage = react.useCallback(async () => {
+			const fetchUsage = react.useCallback(async (targetAccId) => {
 				setLoadingUsage(true);
 				setUsageError(null);
 				try {
-					const res = await fetch("/api/antigravity/usage");
+					const accParam = (targetAccId !== undefined ? targetAccId : selectedUsageAccount);
+					const query = (accParam && accParam !== "all") ? `?accountId=${encodeURIComponent(accParam)}` : "";
+					const res = await fetch(`/api/antigravity/usage${query}`);
 					if (!res.ok) {
 						const text = await res.text().catch(() => "");
 						if (res.status === 404) {
@@ -585,23 +656,24 @@
 				} finally {
 					setLoadingUsage(false);
 				}
-			}, []);
+			}, [selectedUsageAccount]);
 
 			const handleClearUsage = react.useCallback(async () => {
 				if (!confirm(t("confirmClear"))) return;
 				setClearingUsage(true);
 				try {
-					const res = await fetch("/api/antigravity/usage", { method: "DELETE" });
+					const query = (selectedUsageAccount && selectedUsageAccount !== "all") ? `?accountId=${encodeURIComponent(selectedUsageAccount)}` : "";
+					const res = await fetch(`/api/antigravity/usage${query}`, { method: "DELETE" });
 					const json = await res.json();
 					if (json.ok) {
-						await fetchUsage();
+						await fetchUsage(selectedUsageAccount);
 					}
 				} catch (e) {
 					console.error(e);
 				} finally {
 					setClearingUsage(false);
 				}
-			}, [t, fetchUsage]);
+			}, [t, fetchUsage, selectedUsageAccount]);
 
 			const fetchAccounts = react.useCallback(async () => {
 				setLoadingAccounts(true);
@@ -737,14 +809,18 @@
 			let bucketRemainingFraction = null;
 			let bucketResetInSeconds = 0;
 
-			if (quotaData && Array.isArray(quotaData.groups)) {
-				const geminiGroup = quotaData.groups.find(g => (g.displayName || "").toLowerCase().includes("gemini"));
-				const thirdPartyGroup = quotaData.groups.find(g => (g.displayName || "").toLowerCase().includes("claude") || (g.displayName || "").toLowerCase().includes("3p"));
+			const effectiveValuationQuota = (selectedValuationAccount !== "all" && selectedValuationAccount !== accountsData.activeAccountId && externalAccountQuotas[selectedValuationAccount])
+				? externalAccountQuotas[selectedValuationAccount]
+				: quotaData;
+
+			if (effectiveValuationQuota && Array.isArray(effectiveValuationQuota.groups)) {
+				const geminiGroup = effectiveValuationQuota.groups.find(g => (g.displayName || "").toLowerCase().includes("gemini"));
+				const thirdPartyGroup = effectiveValuationQuota.groups.find(g => (g.displayName || "").toLowerCase().includes("claude") || (g.displayName || "").toLowerCase().includes("3p"));
 
 				let activeGroupObj = null;
 				if (selectedGroupFilter === "gemini") activeGroupObj = geminiGroup;
 				else if (selectedGroupFilter === "3p") activeGroupObj = thirdPartyGroup;
-				else activeGroupObj = geminiGroup || quotaData.groups[0];
+				else activeGroupObj = geminiGroup || effectiveValuationQuota.groups[0];
 
 				if (activeGroupObj && Array.isArray(activeGroupObj.buckets)) {
 					if (activeValuationPeriod === "5h") {
@@ -783,7 +859,7 @@
 				: ((usageData && Array.isArray(usageData.recent)) ? usageData.recent : []);
 
 			const windowModelStats = {};
-			if (activeValuationPeriod === "all" && usageData && usageData.byModel) {
+			if (activeValuationPeriod === "all" && usageData && usageData.byModel && selectedValuationAccount === "all") {
 				for (const [mName, mStat] of Object.entries(usageData.byModel)) {
 					if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
 					windowModelStats[mName] = {
@@ -800,6 +876,10 @@
 					const recTime = new Date(rec.timestamp).getTime();
 					if (isNaN(recTime)) continue;
 					if (recTime >= windowStartMs && recTime <= windowEndMs) {
+						if (selectedValuationAccount !== "all") {
+							const isTarget = rec.accountId ? (rec.accountId === selectedValuationAccount) : (selectedValuationAccount === (accountsData.activeAccountId || accountsData.accounts?.[0]?.id));
+							if (!isTarget) continue;
+						}
 						const mName = rec.model || "unknown";
 						if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
 						if (!windowModelStats[mName]) {
@@ -871,6 +951,81 @@
 				});
 			}
 
+			// Multi-Account Estimation Matrix Calculation
+			const accountMatrixList = react.useMemo(() => {
+				if (!accountsData.accounts || accountsData.accounts.length <= 1) return [];
+				return accountsData.accounts.map(acc => {
+					const accQuota = acc.id === accountsData.activeAccountId
+						? quotaData
+						: (externalAccountQuotas[acc.id] || null);
+
+					let accBucket = null;
+					if (accQuota && Array.isArray(accQuota.groups)) {
+						let grp = accQuota.groups[0];
+						if (selectedGroupFilter === "gemini") grp = accQuota.groups.find(g => (g.displayName || "").toLowerCase().includes("gemini")) || grp;
+						else if (selectedGroupFilter === "3p") grp = accQuota.groups.find(g => (g.displayName || "").toLowerCase().includes("claude") || (g.displayName || "").toLowerCase().includes("3p")) || grp;
+						if (grp && Array.isArray(grp.buckets)) {
+							if (activeValuationPeriod === "5h") accBucket = grp.buckets.find(b => b.window === "5h") || grp.buckets[1] || grp.buckets[0];
+							else if (activeValuationPeriod === "weekly") accBucket = grp.buckets.find(b => b.window === "weekly") || grp.buckets[0];
+						}
+					}
+					const accRemFraction = accBucket && typeof accBucket.remainingFraction === "number" ? accBucket.remainingFraction : null;
+
+					let accReqs = 0;
+					let accInput = 0;
+					let accOutput = 0;
+					let accCache = 0;
+					let accReasoning = 0;
+					let accCost = 0;
+
+					for (const rec of historyList) {
+						const recTime = new Date(rec.timestamp).getTime();
+						if (isNaN(recTime) || recTime < windowStartMs || recTime > windowEndMs) continue;
+						const isTarget = rec.accountId ? (rec.accountId === acc.id) : (acc.id === (accountsData.activeAccountId || accountsData.accounts?.[0]?.id));
+						if (!isTarget) continue;
+						const mName = rec.model || "unknown";
+						if (selectedGroupFilter !== "all" && getModelGroup(mName) !== selectedGroupFilter) continue;
+
+						const p = pricing[mName] || DEFAULT_MODEL_PRICING[mName] || DEFAULT_FALLBACK_PRICING;
+						const pIn = typeof p.input === "number" ? p.input : DEFAULT_FALLBACK_PRICING.input;
+						const pOut = typeof p.output === "number" ? p.output : DEFAULT_FALLBACK_PRICING.output;
+						const pCache = typeof p.cache === "number" ? p.cache : DEFAULT_FALLBACK_PRICING.cache;
+
+						const inTok = rec.inputTokens || 0;
+						const outTok = (rec.outputTokens || 0) + (rec.reasoningTokens || 0);
+						const cacheTok = rec.cacheReadTokens || 0;
+
+						accReqs++;
+						accInput += inTok;
+						accOutput += (rec.outputTokens || 0);
+						accCache += cacheTok;
+						accReasoning += (rec.reasoningTokens || 0);
+						accCost += ((inTok * pIn) + (outTok * pOut) + (cacheTok * pCache)) / 1000000;
+					}
+
+					let accEstTotal = null;
+					let accEstRemaining = null;
+					if (accRemFraction !== null) {
+						const usedF = Math.max(0, 1 - accRemFraction);
+						if (usedF > 0.0001 && accCost > 0) {
+							accEstTotal = accCost / usedF;
+							accEstRemaining = accEstTotal * accRemFraction;
+						}
+					}
+
+					return {
+						account: acc,
+						requests: accReqs,
+						tokens: accInput + accOutput + accReasoning,
+						usdCost: accCost,
+						remainingFraction: accRemFraction,
+						estTotal: accEstTotal,
+						estRemaining: accEstRemaining,
+						tier: acc.tier || accQuota?.tier?.paidTier || accQuota?.tier?.name || "Google AI",
+					};
+				});
+			}, [accountsData.accounts, accountsData.activeAccountId, quotaData, externalAccountQuotas, historyList, windowStartMs, windowEndMs, selectedGroupFilter, activeValuationPeriod, pricing]);
+
 			// Quota percentage and estimation calculation
 			const remainingPct = typeof bucketRemainingFraction === "number" ? Math.round(bucketRemainingFraction * 1000) / 10 : null;
 			const usedFraction = typeof bucketRemainingFraction === "number" ? Math.max(0, 1 - bucketRemainingFraction) : null;
@@ -884,7 +1039,8 @@
 
 			if (targetBucket && targetBucket.bucketId) {
 				const bId = targetBucket.bucketId;
-				const baseInfo = quotaBaselines[bId];
+				const curAcc = selectedValuationAccount !== "all" ? selectedValuationAccount : (accountsData.activeAccountId || "default");
+				const baseInfo = quotaBaselines[getBaselineKey(curAcc, bId)] || quotaBaselines[bId];
 				if (baseInfo && baseInfo.resetTime === bucketResetTime && typeof baseInfo.baselineFraction === "number") {
 					baselineFraction = baseInfo.baselineFraction;
 					// If baseline started below 99.5%, use marginal delta deduction
@@ -1569,8 +1725,34 @@
 												children: t("usageSummary")
 											}),
 											(0, react_jsx_runtime.jsxs)("div", {
-												style: { display: "flex", gap: 8 },
+												style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
 												children: [
+													accountsData.accounts && accountsData.accounts.length > 1 ? (0, react_jsx_runtime.jsxs)("select", {
+														style: {
+															height: 28,
+															fontSize: 12,
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															color: "var(--dsw-alias-label-primary, #111827)",
+															padding: "0 6px",
+															cursor: "pointer",
+															maxWidth: 160
+														},
+														value: selectedUsageAccount,
+														onChange: (e) => {
+															const val = e.target.value;
+															setSelectedUsageAccount(val);
+															fetchUsage(val);
+														},
+														children: [
+															(0, react_jsx_runtime.jsx)("option", { value: "all", children: `👥 ${t("accountFilterAll")}` }),
+															...accountsData.accounts.map(acc => (0, react_jsx_runtime.jsx)("option", {
+																value: acc.id,
+																children: `${acc.name || acc.email || acc.id}${acc.id === accountsData.activeAccountId ? ` (${t("currentActiveTag")})` : ""}`
+															}, acc.id))
+														]
+													}) : null,
 													(0, react_jsx_runtime.jsx)("button", {
 														type: "button",
 														style: {
@@ -1583,7 +1765,7 @@
 															cursor: loadingUsage ? "default" : "pointer"
 														},
 														disabled: loadingUsage,
-														onClick: fetchUsage,
+														onClick: () => fetchUsage(selectedUsageAccount),
 														children: loadingUsage ? t("refreshing") : `🔄 ${t("refreshQuota")}`
 													}),
 													(0, react_jsx_runtime.jsx)("button", {
@@ -1720,6 +1902,17 @@
 															style: { display: "flex", alignItems: "center", gap: 8 },
 															children: [
 																(0, react_jsx_runtime.jsx)("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: formatTimeAgo(rec.timestamp) }),
+																(accountsData.accounts && accountsData.accounts.length > 1) ? (0, react_jsx_runtime.jsx)("span", {
+																	style: {
+																		padding: "1px 6px",
+																		borderRadius: 4,
+																		background: "var(--dsw-alias-bg-module-platform, #e0f2fe)",
+																		color: "#0369a1",
+																		fontSize: 10,
+																		fontWeight: 500
+																	},
+																	children: rec.accountName || rec.accountEmail || t("unassignedAccount")
+																}) : null,
 																(0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 500, color: "var(--dsw-alias-label-primary, #111827)" }, children: rec.model }),
 																rec.durationMs ? (0, react_jsx_runtime.jsx)("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)" }, children: `(${formatDuration(rec.durationMs)})` }) : null
 															]
@@ -1814,8 +2007,30 @@
 
 											// Group Filter & Actions
 											(0, react_jsx_runtime.jsxs)("div", {
-												style: { display: "flex", alignItems: "center", gap: 8 },
+												style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
 												children: [
+													accountsData.accounts && accountsData.accounts.length > 1 ? (0, react_jsx_runtime.jsxs)("select", {
+														style: {
+															height: 28,
+															fontSize: 12,
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															color: "var(--dsw-alias-label-primary, #111827)",
+															padding: "0 6px",
+															cursor: "pointer",
+															maxWidth: 160
+														},
+														value: selectedValuationAccount,
+														onChange: (e) => setSelectedValuationAccount(e.target.value),
+														children: [
+															(0, react_jsx_runtime.jsx)("option", { value: "all", children: `👥 ${t("accountFilterAll")}` }),
+															...accountsData.accounts.map(acc => (0, react_jsx_runtime.jsx)("option", {
+																value: acc.id,
+																children: `${acc.name || acc.email || acc.id}${acc.id === accountsData.activeAccountId ? ` (${t("currentActiveTag")})` : ""}`
+															}, acc.id))
+														]
+													}) : null,
 													(0, react_jsx_runtime.jsxs)("select", {
 														style: {
 															height: 28,
@@ -2079,6 +2294,195 @@
 											(0, react_jsx_runtime.jsx)("span", { children: t("estExtNotice") })
 										]
 									}) : null),
+
+									// Multi-Account Estimation Matrix Section (rendered when multiple accounts exist)
+									accountMatrixList && accountMatrixList.length > 0 ? (0, react_jsx_runtime.jsxs)("div", {
+										style: {
+											borderRadius: 8,
+											border: "1px solid var(--dsw-alias-border-l3, #e5e7eb)",
+											background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+											padding: "12px 14px",
+											marginBottom: 16
+										},
+										children: [
+											(0, react_jsx_runtime.jsxs)("div", {
+												style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 },
+												children: [
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)", display: "flex", alignItems: "center", gap: 6 },
+																children: [
+																	(0, react_jsx_runtime.jsx)("span", { children: "📊" }),
+																	(0, react_jsx_runtime.jsx)("span", { children: t("valuationMatrixTitle") })
+																]
+															}),
+															(0, react_jsx_runtime.jsx)("div", {
+																style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #9ca3af)", marginTop: 2 },
+																children: t("valuationMatrixDesc")
+															})
+														]
+													}),
+													(0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														style: {
+															padding: "3px 8px",
+															borderRadius: 6,
+															border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+															background: "var(--dsw-alias-bg-layer-3, #ffffff)",
+															fontSize: 11,
+															color: "var(--dsw-alias-label-secondary, #4b5563)",
+															cursor: "pointer"
+														},
+														onClick: () => {
+															if (accountsData.accounts) {
+																accountsData.accounts.forEach(acc => {
+																	if (acc.id !== accountsData.activeAccountId) fetchAccountQuota(acc.id);
+																});
+															}
+															fetchQuota(true);
+														},
+														children: `🔄 ${t("refreshAllAccounts")}`
+													})
+												]
+											}),
+												(0, react_jsx_runtime.jsx)("div", {
+												style: { overflowX: "auto" },
+												children: (0, react_jsx_runtime.jsxs)("table", {
+													style: { width: "100%", minWidth: 620, borderCollapse: "collapse", fontSize: 11, textAlign: "left" },
+													children: [
+														(0, react_jsx_runtime.jsx)("thead", {
+															children: (0, react_jsx_runtime.jsxs)("tr", {
+																style: { borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e7eb)", color: "var(--dsw-alias-label-tertiary, #9ca3af)" },
+																children: [
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", whiteSpace: "nowrap" }, children: t("accountCol") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("totalRequests") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("windowTokens") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("windowUsedUsd") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("remainingQuotaPct") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("estTotalValue") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }, children: t("estRemainingValue") }),
+																	(0, react_jsx_runtime.jsx)("th", { style: { padding: "6px 8px", textAlign: "center", whiteSpace: "nowrap" }, children: t("accountActions") })
+																]
+															})
+														}),
+														(0, react_jsx_runtime.jsx)("tbody", {
+															children: accountMatrixList.map((row) => {
+																const isActive = row.account.id === accountsData.activeAccountId;
+																const remPct = typeof row.remainingFraction === "number" ? Math.round(row.remainingFraction * 1000) / 10 : null;
+																const colors = remPct !== null ? getPercentColor(remPct) : { text: "#6b7280", bar: "#9ca3af" };
+																return (0, react_jsx_runtime.jsxs)("tr", {
+																	key: row.account.id,
+																	style: {
+																		borderBottom: "1px solid var(--dsw-alias-border-l3, #f3f4f6)",
+																		background: isActive ? "rgba(2, 132, 199, 0.04)" : "transparent"
+																	},
+																	children: [
+																		// Account Info
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", whiteSpace: "nowrap" },
+																			children: (0, react_jsx_runtime.jsxs)("div", {
+																				style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+																				children: [
+																					(0, react_jsx_runtime.jsx)("span", {
+																						style: { fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" },
+																						children: row.account.name || row.account.email || row.account.id
+																					}),
+																					isActive ? (0, react_jsx_runtime.jsx)("span", {
+																						style: { padding: "1px 5px", borderRadius: 4, background: "#dbeafe", color: "#1d4ed8", fontSize: 10, fontWeight: 500 },
+																						children: t("currentActiveTag")
+																					}) : null,
+																					row.tier ? (0, react_jsx_runtime.jsx)("span", {
+																						style: { padding: "1px 5px", borderRadius: 4, background: "var(--dsw-alias-bg-module-platform, #f3f4f6)", color: "var(--dsw-alias-label-tertiary, #6b7280)", fontSize: 10 },
+																						children: row.tier
+																					}) : null
+																				]
+																			})
+																		}),
+																		// Requests
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", color: "var(--dsw-alias-label-primary, #111827)", whiteSpace: "nowrap" },
+																			children: row.requests
+																		}),
+																		// Tokens
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", color: "var(--dsw-alias-label-primary, #111827)", whiteSpace: "nowrap" },
+																			children: formatTokens(row.tokens)
+																		}),
+																		// Window Used USD
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", fontWeight: 600, color: row.usdCost > 0 ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-tertiary, #9ca3af)", whiteSpace: "nowrap" },
+																			children: formatCurrency(row.usdCost)
+																		}),
+																		// Remaining Quota %
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", fontWeight: 600, color: colors.text, whiteSpace: "nowrap" },
+																			children: remPct !== null ? `${remPct}%` : "—"
+																		}),
+																		// Est. Total Value
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", color: row.estTotal !== null ? "#1d4ed8" : "var(--dsw-alias-label-tertiary, #9ca3af)", fontWeight: row.estTotal !== null ? 600 : 400, whiteSpace: "nowrap" },
+																			children: row.estTotal !== null ? formatCurrency(row.estTotal) : "—"
+																		}),
+																		// Est. Remaining Value
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "right", color: row.estRemaining !== null ? "#047857" : "var(--dsw-alias-label-tertiary, #9ca3af)", fontWeight: row.estRemaining !== null ? 600 : 400, whiteSpace: "nowrap" },
+																			children: row.estRemaining !== null ? formatCurrency(row.estRemaining) : "—"
+																		}),
+																		// Actions
+																		(0, react_jsx_runtime.jsx)("td", {
+																			style: { padding: "8px", textAlign: "center", whiteSpace: "nowrap" },
+																			children: !isActive ? (0, react_jsx_runtime.jsx)("button", {
+																				type: "button",
+																				style: {
+																					padding: "2px 8px",
+																					borderRadius: 4,
+																					border: "1px solid var(--dsw-alias-brand-primary, #0284c7)",
+																					background: "#f0f9ff",
+																					color: "var(--dsw-alias-brand-primary, #0284c7)",
+																					fontSize: 11,
+																					cursor: switchingAccountId !== null ? "default" : "pointer"
+																				},
+																				disabled: switchingAccountId !== null,
+																				onClick: () => handleSwitchAccount(row.account.id),
+																				children: switchingAccountId === row.account.id ? t("switching") : t("switchToAccount")
+																			}) : (0, react_jsx_runtime.jsx)("span", {
+																				style: { color: "var(--dsw-alias-label-tertiary, #9ca3af)", fontSize: 10 },
+																				children: "✓"
+																			})
+																		})
+																	]
+																});
+															})
+														}),
+														// Footer Totals
+														(0, react_jsx_runtime.jsx)("tfoot", {
+															children: (() => {
+																const sumReqs = accountMatrixList.reduce((acc, r) => acc + r.requests, 0);
+																const sumTokens = accountMatrixList.reduce((acc, r) => acc + r.tokens, 0);
+																const sumCost = accountMatrixList.reduce((acc, r) => acc + r.usdCost, 0);
+																const sumEstTotal = accountMatrixList.reduce((acc, r) => r.estTotal ? acc + r.estTotal : acc, 0);
+																const sumEstRem = accountMatrixList.reduce((acc, r) => r.estRemaining ? acc + r.estRemaining : acc, 0);
+																return (0, react_jsx_runtime.jsxs)("tr", {
+																	style: { borderTop: "2px solid var(--dsw-alias-border-l2, #e5e7eb)", fontWeight: 600 },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", color: "var(--dsw-alias-label-primary, #111827)", whiteSpace: "nowrap" }, children: t("accountFilterAll") }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", whiteSpace: "nowrap" }, children: sumReqs }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", whiteSpace: "nowrap" }, children: formatTokens(sumTokens) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: "#0284c7", whiteSpace: "nowrap" }, children: formatCurrency(sumCost) }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", whiteSpace: "nowrap" }, children: "—" }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: sumEstTotal > 0 ? "#1d4ed8" : "inherit", whiteSpace: "nowrap" }, children: sumEstTotal > 0 ? formatCurrency(sumEstTotal) : "—" }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px", textAlign: "right", color: sumEstRem > 0 ? "#047857" : "inherit", whiteSpace: "nowrap" }, children: sumEstRem > 0 ? formatCurrency(sumEstRem) : "—" }),
+																		(0, react_jsx_runtime.jsx)("td", { style: { padding: "8px" } })
+																	]
+																});
+															})()
+														})
+													]
+												})
+											})
+										]
+									}) : null,
 
 									// Pricing & Valuation Table Section
 									(0, react_jsx_runtime.jsxs)("div", {

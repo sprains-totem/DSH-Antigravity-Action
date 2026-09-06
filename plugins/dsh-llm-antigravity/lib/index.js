@@ -484,6 +484,7 @@ class UsageTracker {
             lastUsed: data.summary?.lastUsed || null,
           },
           byModel: data.byModel || {},
+          byAccount: data.byAccount || {},
           daily: data.daily || {},
           recent,
           history,
@@ -501,6 +502,7 @@ class UsageTracker {
         lastUsed: null,
       },
       byModel: {},
+      byAccount: {},
       daily: {},
       recent: [],
       history: [],
@@ -530,6 +532,9 @@ class UsageTracker {
       reasoningTokens = 0,
       durationMs = 0,
       sessionId,
+      accountId,
+      accountName,
+      accountEmail,
     } = item
 
     const totalTokens = inputTokens + outputTokens + reasoningTokens
@@ -564,6 +569,50 @@ class UsageTracker {
     m.reasoningTokens += reasoningTokens
     m.totalTokens += totalTokens
 
+    // By Account
+    if (!this.stats.byAccount) this.stats.byAccount = {}
+    const accKey = accountId || 'legacy'
+    if (!this.stats.byAccount[accKey]) {
+      this.stats.byAccount[accKey] = {
+        accountId: accountId || '',
+        name: accountName || (accountId ? '已配置账号' : '历史/未分配账号'),
+        email: accountEmail || '',
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+        byModel: {},
+      }
+    }
+    const accStat = this.stats.byAccount[accKey]
+    accStat.requests++
+    accStat.inputTokens += inputTokens
+    accStat.outputTokens += outputTokens
+    accStat.cacheReadTokens += cacheReadTokens
+    accStat.reasoningTokens += reasoningTokens
+    accStat.totalTokens += totalTokens
+    if (accountName) accStat.name = accountName
+    if (accountEmail) accStat.email = accountEmail
+    if (!accStat.byModel[model]) {
+      accStat.byModel[model] = {
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+      }
+    }
+    const accModel = accStat.byModel[model]
+    accModel.requests++
+    accModel.inputTokens += inputTokens
+    accModel.outputTokens += outputTokens
+    accModel.cacheReadTokens += cacheReadTokens
+    accModel.reasoningTokens += reasoningTokens
+    accModel.totalTokens += totalTokens
+
     // Daily
     const day = timestamp.slice(0, 10)
     if (!this.stats.daily[day]) {
@@ -595,6 +644,9 @@ class UsageTracker {
       cacheSavingsRatio,
       durationMs,
       sessionId: sessionId ? String(sessionId) : undefined,
+      accountId: accountId || undefined,
+      accountName: accountName || undefined,
+      accountEmail: accountEmail || undefined,
     }
 
     // History (retain 14 days of detailed records, capped at 20,000)
@@ -620,8 +672,9 @@ class UsageTracker {
     this.scheduleSave()
   }
 
-  aggregateWindow(startTimeMs, endTimeMs) {
+  aggregateWindow(startTimeMs, endTimeMs, filterAccountId) {
     const byModel = {}
+    const byAccount = {}
     let totalRequests = 0
     let totalInputTokens = 0
     let totalOutputTokens = 0
@@ -636,6 +689,38 @@ class UsageTracker {
       const t = new Date(item.timestamp).getTime()
       if (isNaN(t)) continue
       if (t >= startTimeMs && t <= endTimeMs) {
+        const itemAcc = item.accountId || 'legacy'
+        const accName = item.accountName || (item.accountId ? '已配置账号' : '历史/未分配账号')
+        const accEmail = item.accountEmail || ''
+
+        // Always aggregate by account within this window
+        if (!byAccount[itemAcc]) {
+          byAccount[itemAcc] = {
+            accountId: item.accountId || '',
+            name: accName,
+            email: accEmail,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+            byModel: {},
+          }
+        }
+        const acc = byAccount[itemAcc]
+        acc.requests++
+        acc.inputTokens += (item.inputTokens || 0)
+        acc.outputTokens += (item.outputTokens || 0)
+        acc.cacheReadTokens += (item.cacheReadTokens || 0)
+        acc.reasoningTokens += (item.reasoningTokens || 0)
+        acc.totalTokens += ((item.inputTokens || 0) + (item.outputTokens || 0) + (item.reasoningTokens || 0))
+
+        // If filterAccountId is given and does not match, skip top-level byModel/summary
+        if (filterAccountId && filterAccountId !== 'all' && item.accountId !== filterAccountId) {
+          continue
+        }
+
         const model = item.model || 'unknown'
         if (!byModel[model]) {
           byModel[model] = {
@@ -682,15 +767,47 @@ class UsageTracker {
         cacheSavingsRate,
       },
       byModel,
+      byAccount,
     }
   }
 
   getStats(options = {}) {
-    const grossPrompt = this.stats.summary.totalInputTokens + this.stats.summary.totalCacheReadTokens
+    const filterAccountId = options.accountId || null
+    let summary = { ...this.stats.summary }
+    let byModel = this.stats.byModel
+
+    if (filterAccountId && filterAccountId !== 'all') {
+      const accStats = this.stats.byAccount && (this.stats.byAccount[filterAccountId] || (filterAccountId === 'legacy' ? this.stats.byAccount['legacy'] : null))
+      if (accStats) {
+        summary = {
+          totalRequests: accStats.requests || 0,
+          totalInputTokens: accStats.inputTokens || 0,
+          totalOutputTokens: accStats.outputTokens || 0,
+          totalCacheReadTokens: accStats.cacheReadTokens || 0,
+          totalReasoningTokens: accStats.reasoningTokens || 0,
+          firstUsed: null,
+          lastUsed: null,
+        }
+        byModel = accStats.byModel || {}
+      } else {
+        summary = {
+          totalRequests: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCacheReadTokens: 0,
+          totalReasoningTokens: 0,
+          firstUsed: null,
+          lastUsed: null,
+        }
+        byModel = {}
+      }
+    }
+
+    const grossPrompt = summary.totalInputTokens + summary.totalCacheReadTokens
     const cacheSavingsRate = grossPrompt > 0
-      ? `${(Math.round((this.stats.summary.totalCacheReadTokens / grossPrompt) * 1000) / 10).toFixed(1)}%`
+      ? `${(Math.round((summary.totalCacheReadTokens / grossPrompt) * 1000) / 10).toFixed(1)}%`
       : '0.0%'
-    const totalTokens = this.stats.summary.totalInputTokens + this.stats.summary.totalOutputTokens + this.stats.summary.totalReasoningTokens
+    const totalTokens = summary.totalInputTokens + summary.totalOutputTokens + summary.totalReasoningTokens
 
     const now = Date.now()
 
@@ -704,20 +821,28 @@ class UsageTracker {
     const endWeekly = !isNaN(resetTimeWeeklyMs) ? resetTimeWeeklyMs : now
     const startWeekly = endWeekly - (7 * 24 * 3600 * 1000)
 
-    const window5h = this.aggregateWindow(start5h, end5h)
-    const windowWeekly = this.aggregateWindow(startWeekly, endWeekly)
+    const window5h = this.aggregateWindow(start5h, end5h, filterAccountId)
+    const windowWeekly = this.aggregateWindow(startWeekly, endWeekly, filterAccountId)
+
+    let filteredRecent = this.stats.recent || []
+    let filteredHistory = this.stats.history || this.stats.recent || []
+    if (filterAccountId && filterAccountId !== 'all') {
+      filteredRecent = filteredRecent.filter(r => r.accountId === filterAccountId || (!r.accountId && filterAccountId === 'legacy'))
+      filteredHistory = filteredHistory.filter(r => r.accountId === filterAccountId || (!r.accountId && filterAccountId === 'legacy'))
+    }
 
     return {
       summary: {
-        ...this.stats.summary,
+        ...summary,
         totalTokens,
         grossPromptTokens: grossPrompt,
         cacheSavingsRate,
       },
-      byModel: this.stats.byModel,
+      byModel,
+      byAccount: this.stats.byAccount || {},
       daily: this.stats.daily,
-      recent: this.stats.recent,
-      history: this.stats.history || this.stats.recent || [],
+      recent: filteredRecent,
+      history: filteredHistory,
       windows: {
         '5h': window5h,
         weekly: windowWeekly,
@@ -725,21 +850,34 @@ class UsageTracker {
     }
   }
 
-  reset() {
-    this.stats = {
-      summary: {
-        totalRequests: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCacheReadTokens: 0,
-        totalReasoningTokens: 0,
-        firstUsed: null,
-        lastUsed: null,
-      },
-      byModel: {},
-      daily: {},
-      recent: [],
-      history: [],
+  reset(accountId) {
+    if (accountId && accountId !== 'all') {
+      if (this.stats.byAccount && this.stats.byAccount[accountId]) {
+        delete this.stats.byAccount[accountId]
+      }
+      if (Array.isArray(this.stats.recent)) {
+        this.stats.recent = this.stats.recent.filter(r => r.accountId !== accountId)
+      }
+      if (Array.isArray(this.stats.history)) {
+        this.stats.history = this.stats.history.filter(r => r.accountId !== accountId)
+      }
+    } else {
+      this.stats = {
+        summary: {
+          totalRequests: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCacheReadTokens: 0,
+          totalReasoningTokens: 0,
+          firstUsed: null,
+          lastUsed: null,
+        },
+        byModel: {},
+        byAccount: {},
+        daily: {},
+        recent: [],
+        history: [],
+      }
     }
     try {
       const filePath = getUsageFilePath()
@@ -2060,6 +2198,7 @@ class AntigravityAdapter extends LlmAdapter {
           throw lastError
         }
         if (!response.body) throw new LlmError('antigravity API returned no response body', 'EMPTY_RESPONSE')
+        const activeAcc = this.config.getActiveAccount ? this.config.getActiveAccount() : null
         yield* translate(parseSse(response.body), options.sessionId, (usage) => {
           this.usageTracker?.record({
             timestamp: new Date().toISOString(),
@@ -2070,6 +2209,9 @@ class AntigravityAdapter extends LlmAdapter {
             reasoningTokens: usage.reasoningTokens || 0,
             durationMs: Date.now() - startTime,
             sessionId: options.sessionId,
+            accountId: activeAcc?.id,
+            accountName: activeAcc?.name,
+            accountEmail: activeAcc?.email,
           })
         })
         return
@@ -2238,6 +2380,7 @@ function apply(ctx, config) {
     options,
     resolveRefreshToken,
     resolveAttachments: () => ctx.get('attachments'),
+    getActiveAccount: () => accountsManager.getActiveAccount(),
   }, usageTracker, quotaService)
 
   // Register WebServer routes for accounts, live quota and usage statistics
@@ -2438,8 +2581,9 @@ function apply(ctx, config) {
           }
 
           if (pathName === '/api/antigravity/usage') {
+            const accountId = url.searchParams.get('accountId')
             if (req.method === 'DELETE') {
-              usageTracker.reset()
+              usageTracker.reset(accountId)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ ok: true, message: 'Usage statistics reset' }))
               return
@@ -2447,7 +2591,7 @@ function apply(ctx, config) {
             const resetTime5h = url.searchParams.get('resetTime5h')
             const resetTimeWeekly = url.searchParams.get('resetTimeWeekly')
             res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats({ resetTime5h, resetTimeWeekly }) }))
+            res.end(JSON.stringify({ ok: true, stats: usageTracker.getStats({ resetTime5h, resetTimeWeekly, accountId }) }))
             return
           }
 
