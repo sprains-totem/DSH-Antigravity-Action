@@ -23,6 +23,8 @@ export function ModelPickerSheet({
 
   const defaultModels: ModelCatalogItem[] = models.length > 0 ? models : [
     { id: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash High', description: '旗舰模型，支持深度混合推理思考' },
+    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', description: '全功能多模态闪电模型' },
+    { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash High', description: '下一代高思考预算闪电模型' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '快速低延迟，适合轻量快速问答' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '强大代码能力，支持复杂工程重构' },
     { id: 'gemini-3-flash', name: 'Gemini 3 Flash', description: '最新下一代闪电模型' },

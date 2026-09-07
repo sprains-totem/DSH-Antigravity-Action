@@ -177,7 +177,8 @@ Accept-Encoding: gzip
 ### 2.4 模型元数据目录：`POST /v1internal:fetchAvailableModels`
 - **Request**: `{ "project": "atlantean-moon-qjgl4" }`
 - **返回模型清单 (28 款)**：
-  - **Gemini 3.7 系列**：`gemini-3.7-flash-high` / `medium` / `low` / `tiered` (1M 上下文，64K 输出，带 Thinking)
+  - **Gemini 3.7 系列**：`gemini-3.7-flash` / `high` / `medium` / `low` / `tiered` / `thinking` (1M 上下文，64K 输出，带 Thinking，缓存 $0.075/1M)
+  - **Gemini 3.8 系列**：`gemini-3.8-flash` / `high` / `medium` / `low` / `tiered` / `thinking` (1M 上下文，64K 输出，带 Thinking，缓存 $0.075/1M)
   - **Gemini 3.6 / 3.5 系列**：`gemini-3.6-flash-high` / `medium` / `low`, `gemini-3.5-flash-low`
   - **Gemini 3.1 系列**：`gemini-3.1-pro-high` / `low`, `gemini-3.1-flash-lite`, `gemini-3.1-flash-image`
   - **Gemini 2.5 系列**：`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-thinking`

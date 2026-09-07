@@ -327,10 +327,14 @@
 	};
 
 	const DEFAULT_MODEL_PRICING = {
+		"gemini-3.7-flash": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.7-flash-thinking": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.7-flash-high": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.7-flash-medium": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.7-flash-low": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.7-flash-tiered": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash": { input: 0.75, output: 3.75, cache: 0.075 },
+		"gemini-3.8-flash-thinking": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.8-flash-high": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.8-flash-medium": { input: 0.75, output: 3.75, cache: 0.075 },
 		"gemini-3.8-flash-low": { input: 0.75, output: 3.75, cache: 0.075 },
@@ -531,6 +535,12 @@
 						const saved = window.localStorage.getItem("antigravity_pricing_v1");
 						if (saved) {
 							const parsed = JSON.parse(saved);
+							// Auto-migrate legacy 0.1875 cache price for Gemini 3.7 / 3.8 Flash series to official 0.075
+							for (const [k, v] of Object.entries(parsed)) {
+								if ((k.includes("3.7-flash") || k.includes("3.8-flash")) && v && v.cache === 0.1875) {
+									v.cache = 0.075;
+								}
+							}
 							return { ...DEFAULT_MODEL_PRICING, ...parsed };
 						}
 					}

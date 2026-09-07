@@ -62,13 +62,29 @@ export function SettingsSheet({
   const [mobilePricing, setMobilePricing] = useState<Record<string, { input: number; output: number; cache: number }>>(() => {
     try {
       const saved = localStorage.getItem('antigravity_pricing_v1');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        for (const [k, v] of Object.entries(parsed as Record<string, { cache?: number }>)) {
+          if ((k.includes('3.7-flash') || k.includes('3.8-flash')) && v && v.cache === 0.1875) {
+            v.cache = 0.075;
+          }
+        }
+        return parsed;
+      }
     } catch {}
     return {
-      'gemini-3.7-flash-high': { input: 0.75, output: 3.75, cache: 0.1875 },
-      'gemini-3.7-flash-medium': { input: 0.75, output: 3.75, cache: 0.1875 },
-      'gemini-3.7-flash-low': { input: 0.75, output: 3.75, cache: 0.1875 },
-      'gemini-3.7-flash-tiered': { input: 0.75, output: 3.75, cache: 0.1875 },
+      'gemini-3.7-flash': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.7-flash-thinking': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.7-flash-high': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.7-flash-medium': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.7-flash-low': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.7-flash-tiered': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash-thinking': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash-high': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash-medium': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash-low': { input: 0.75, output: 3.75, cache: 0.075 },
+      'gemini-3.8-flash-tiered': { input: 0.75, output: 3.75, cache: 0.075 },
       'gemini-3.6-flash-high': { input: 0.75, output: 3.75, cache: 0.1875 },
       'gemini-3.5-flash-low': { input: 1.50, output: 9.00, cache: 0.15 },
       'gemini-3-flash': { input: 0.75, output: 3.75, cache: 0.1875 },
@@ -315,6 +331,9 @@ export function SettingsSheet({
     let targetModel = defaultModel;
     if (defaultModel.startsWith('gemini-3.7-flash-')) {
       targetModel = `gemini-3.7-flash-${effort}`;
+      setDefaultModel(targetModel);
+    } else if (defaultModel.startsWith('gemini-3.8-flash-')) {
+      targetModel = `gemini-3.8-flash-${effort}`;
       setDefaultModel(targetModel);
     } else if (defaultModel.startsWith('gemini-3.6-flash-')) {
       targetModel = `gemini-3.6-flash-${effort}`;
@@ -590,6 +609,11 @@ export function SettingsSheet({
                     { id: 'gemini-3.7-flash-high', prov: 'antigravity', name: 'Gemini 3.7 Flash High', desc: '深度思考推理旗舰模型（推荐）' },
                     { id: 'gemini-3.7-flash-medium', prov: 'antigravity', name: 'Gemini 3.7 Flash Medium', desc: '中等思考深度，平衡性能与时延' },
                     { id: 'gemini-3.7-flash-low', prov: 'antigravity', name: 'Gemini 3.7 Flash Low', desc: '极速低思考预算，适合轻量快速任务' },
+                    { id: 'gemini-3.7-flash', prov: 'antigravity', name: 'Gemini 3.7 Flash', desc: '官方多模态全功能基础模型' },
+                    { id: 'gemini-3.8-flash-high', prov: 'antigravity', name: 'Gemini 3.8 Flash High', desc: '下一代高思考预算闪电模型' },
+                    { id: 'gemini-3.8-flash-medium', prov: 'antigravity', name: 'Gemini 3.8 Flash Medium', desc: '下一代平衡思考模型' },
+                    { id: 'gemini-3.8-flash-low', prov: 'antigravity', name: 'Gemini 3.8 Flash Low', desc: '下一代极速闪电模型' },
+                    { id: 'gemini-3.8-flash', prov: 'antigravity', name: 'Gemini 3.8 Flash', desc: '下一代官方全功能基础模型' },
                     { id: 'gemini-pro-agent', prov: 'antigravity', name: 'Gemini Pro Agent', desc: '百万上下文窗口，复杂代码与长程任务' },
                     { id: 'gemini-3.6-flash-high', prov: 'antigravity', name: 'Gemini 3.6 Flash High', desc: '高性能推理模型' },
                     { id: 'gemini-3.1-flash-lite', prov: 'antigravity', name: 'Gemini 3.1 Flash Lite', desc: '轻量极速多模态模型' },
@@ -955,7 +979,8 @@ export function SettingsSheet({
                                 let rawValuationWithoutCache = 0;
 
                                 for (const [mName, s] of Object.entries(modelStats)) {
-                                  const pr = mobilePricing[mName] || { input: 0.75, output: 3.75, cache: 0.1875 };
+                                  const isFlash37or38 = mName.includes('3.7-flash') || mName.includes('3.8-flash');
+                                  const pr = mobilePricing[mName] || { input: 0.75, output: 3.75, cache: isFlash37or38 ? 0.075 : 0.1875 };
                                   totalGrossIn += (s.inputTokens + s.cacheReadTokens);
                                   totalOut += s.outputTokens;
                                   totalCache += s.cacheReadTokens;
