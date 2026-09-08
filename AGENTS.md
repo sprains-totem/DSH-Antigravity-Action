@@ -27,6 +27,7 @@
 │   │   • plugins/dsh-mobile-webui (全新独立移动端SPA: /mobile)      │   │
 │   │   • plugins/dsh-llm-antigravity (Gemini 核心与额度看板)        │   │
 │   │   • plugins/dsh-mobile-nav (移动端响应式与抽屉化适配)          │   │
+│   │   • plugins/dsh-webui-enhanced (思考折叠与加号上传增强)        │   │
 │   │   • plugins/dsh-fail-soft (运行时故障隔离与全局异常捕获)       │   │
 │   │   • plugins/dsh-cloudflare-tunnel (隧道管理与路由同步)         │   │
 │   │   • plugins/dsh-web-search-antigravity / selector (联网搜索)   │   │

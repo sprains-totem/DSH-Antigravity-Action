@@ -33,6 +33,7 @@ graph TD
         DSH --> ImgGen[dsh-image-gen-antigravity]
         DSH --> Tunnel[dsh-cloudflare-tunnel]
         DSH --> Mobile[dsh-mobile-nav / 移动端UI适配]
+        DSH --> WebUIEnhanced[dsh-webui-enhanced / WebUI折叠与上传增强]
         DSH --> FailSoft[dsh-fail-soft / 故障隔离]
     end
     
@@ -78,6 +79,10 @@ graph TD
 ### 6. 🚇 `dsh-cloudflare-tunnel` (公网安全穿透)
 - 启动即自动建立 Cloudflare Quick Tunnel，全链路 HTTPS 安全加密。
 - 自动将公网临时隧道地址静默同步至 Cloudflare Worker 动态路由。
+
+### 7. ✨ `dsh-webui-enhanced` (WebUI 交互增强套件)
+- **思考与多步工具实时平铺 + 完成折叠总结**：执行过程中平铺展开，实时反馈多步工具执行与思考进度；执行完毕后自动折叠为单行总结卡片：`思考 X 次，调用工具 Y 次，共用时 Zs (输入 ... · 输出 ... · 缓存 ... · 命中率 ...%)`，支持点击展开/收起及 Token 指标切换。
+- **输入框加号（`+`）多平台文件/图片上传**：常用指令菜单顶部呈现「上传图片」与「上传文件」卡片，与官方 `/` 指令完全杜绝 UI 文字重叠，智能分流多模态附件管道与代码文本。
 
 ---
 

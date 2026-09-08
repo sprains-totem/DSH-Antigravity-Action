@@ -9,6 +9,9 @@
     - id: dsh-mobile-nav
       name: "@dsh-external/dsh-mobile-nav"
 
+    - id: webui-enhanced
+      name: dsh-webui-enhanced
+
     - id: llm-antigravity
       name: dsh-llm-antigravity
       config:
