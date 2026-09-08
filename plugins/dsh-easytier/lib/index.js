@@ -1,4 +1,4 @@
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -87,6 +87,29 @@ export class EasyTierManager {
   constructor(ctx, config) {
     this.ctx = ctx;
     this.config = config || {};
+    this.loadPersistedConfig();
+  }
+
+  loadPersistedConfig() {
+    try {
+      const home = process.env.HOME || process.env.USERPROFILE || '';
+      const configPath = path.join(home, '.dsh', 'easytier_config.json');
+      if (existsSync(configPath)) {
+        const raw = readFileSync(configPath, 'utf8');
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          this.dynamicSettings = { ...this.dynamicSettings, ...data };
+        }
+      }
+    } catch (e) {}
+  }
+
+  savePersistedConfig(settings) {
+    try {
+      const home = process.env.HOME || process.env.USERPROFILE || '';
+      const configPath = path.join(home, '.dsh', 'easytier_config.json');
+      writeFileSync(configPath, JSON.stringify(settings, null, 2), 'utf8');
+    } catch (e) {}
   }
 
   getEffectiveConfig() {
@@ -181,6 +204,7 @@ export class EasyTierManager {
     if (this.#disposed) return;
     if (newSettings && typeof newSettings === 'object') {
       this.dynamicSettings = { ...this.dynamicSettings, ...newSettings };
+      this.savePersistedConfig(this.dynamicSettings);
     }
     this.ctx.logger?.info?.('[easytier] Settings updated from WebUI/host store, reconciling network state...');
     const conf = this.getEffectiveConfig();
@@ -259,6 +283,13 @@ export class EasyTierManager {
     );
 
     try {
+      if (process.platform !== 'win32') {
+        try {
+          spawnSync('pkill', ['-f', 'easytier-core']);
+          await new Promise(r => setTimeout(r, 400));
+        } catch {}
+      }
+
       const cp = spawn(conf.binPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, NO_COLOR: '1' }
@@ -456,6 +487,11 @@ export class EasyTierManager {
       } catch {}
       this.process = null;
     }
+    try {
+      if (process.platform !== 'win32') {
+        spawnSync('pkill', ['-f', 'easytier-core']);
+      }
+    } catch {}
     this.status = 'stopped';
     this.virtualIp = null;
     this.url = null;

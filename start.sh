@@ -454,11 +454,13 @@ run_dsh() {
       wait "$DSH_PID" || true
       local exit_code=$?
       kill "$TAIL_PID" 2>/dev/null || true
+      pkill -f "easytier-core" 2>/dev/null || true
       log_guardian "⚠️ DSH 进程退出 (PID: $DSH_PID, Exit Code: $exit_code)"
       continue
     else
       # 健康检查失败
       kill "$TAIL_PID" 2>/dev/null || true
+      pkill -f "easytier-core" 2>/dev/null || true
       if kill -0 "$DSH_PID" 2>/dev/null; then
         kill "$DSH_PID" 2>/dev/null || true
       fi
@@ -491,7 +493,7 @@ case "${1:-}" in
     init_env
     stage_to_slot_b "."
     echo "⚡ 候选代码已成功写入 Slot B，正在重启 DSH 服务以激活 Slot B 测试..."
-    (sleep 1 && pkill -f "dsh web") >/dev/null 2>&1 &
+    (sleep 1 && pkill -f "easytier-core" 2>/dev/null || true; pkill -f "dsh web") >/dev/null 2>&1 &
     ;;
   promote)
     promote_to_slot_a "$SLOT_B_DIR"
