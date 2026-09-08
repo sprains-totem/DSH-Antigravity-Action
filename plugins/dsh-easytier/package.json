@@ -1,0 +1,28 @@
+{
+  "name": "dsh-easytier",
+  "version": "0.1.0",
+  "description": "EasyTier peer-to-peer mesh VPN integration for DeepSeek Harness (supporting --no-tun rootless userspace mode, dynamic virtual IP exposure, and GitHub Actions parameters)",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  }
+}

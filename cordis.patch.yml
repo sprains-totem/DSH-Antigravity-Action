@@ -36,6 +36,13 @@
         enabled: true
         port: 3080
 
+    - id: easytier
+      name: dsh-easytier
+      config:
+        enabled: true
+        port: 3080
+        noTun: true
+
 - id: web
   config:
     searchProvider: antigravity

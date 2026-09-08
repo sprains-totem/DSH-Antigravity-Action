@@ -9,6 +9,7 @@
 
 DSH_PORT="${DSH_PORT:-3080}"
 DSH_HOME_DIR="${HOME}/.dsh"
+export PATH="${DSH_HOME_DIR}/bin:${PATH}"
 SLOT_A_DIR="${DSH_HOME_DIR}/slots/slot-a"
 SLOT_B_DIR="${DSH_HOME_DIR}/slots/slot-b"
 SLOT_ACTIVE_FILE="${DSH_HOME_DIR}/slots/active_slot"
@@ -80,13 +81,38 @@ init_env() {
   echo "=========================================================================="
   echo "🚀 [1/4] 初始化系统依赖环境..."
   echo "=========================================================================="
-  sudo apt-get update -qq && sudo apt-get install -y -qq tmate curl jq
+  sudo apt-get update -qq && sudo apt-get install -y -qq tmate curl jq unzip
 
   if ! command -v cloudflared &> /dev/null; then
     echo "正在安装 Cloudflare Tunnel 客户端 (cloudflared)..."
     curl -L -s --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
     sudo dpkg -i cloudflared.deb
     rm -f cloudflared.deb
+  fi
+
+  # 初始化 EasyTier 依赖环境
+  mkdir -p "${DSH_HOME_DIR}/bin"
+  export PATH="${DSH_HOME_DIR}/bin:${PATH}"
+
+  if ! command -v easytier-core &> /dev/null; then
+    local local_et="/home/runner/work/easytier/bin/easytier-linux-x86_64/easytier-core"
+    local local_cli="/home/runner/work/easytier/bin/easytier-linux-x86_64/easytier-cli"
+    if [ -f "$local_et" ] && [ -f "$local_cli" ]; then
+      echo "发现预编译 EasyTier，正在配置软链接..."
+      ln -sfn "$local_et" "${DSH_HOME_DIR}/bin/easytier-core"
+      ln -sfn "$local_cli" "${DSH_HOME_DIR}/bin/easytier-cli"
+      chmod +x "${DSH_HOME_DIR}/bin/easytier-core" "${DSH_HOME_DIR}/bin/easytier-cli" 2>/dev/null || true
+    else
+      echo "正在下载并安装 EasyTier (v2.6.4)..."
+      curl -L -s --output /tmp/easytier.zip https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-linux-x86_64-v2.6.4.zip
+      if [ -f /tmp/easytier.zip ]; then
+        unzip -q -o /tmp/easytier.zip -d /tmp/easytier-dist
+        cp -f /tmp/easytier-dist/easytier-linux-x86_64/easytier-core "${DSH_HOME_DIR}/bin/"
+        cp -f /tmp/easytier-dist/easytier-linux-x86_64/easytier-cli "${DSH_HOME_DIR}/bin/"
+        chmod +x "${DSH_HOME_DIR}/bin/easytier-core" "${DSH_HOME_DIR}/bin/easytier-cli"
+        rm -rf /tmp/easytier.zip /tmp/easytier-dist
+      fi
+    fi
   fi
 
   local global_nm
@@ -307,6 +333,19 @@ EOF
   export CF_WORKER_TOKEN="${CF_WORKER_TOKEN}"
   export DSH_WEB_SEARCH_PROVIDER="${DSH_WEB_SEARCH_PROVIDER:-antigravity}"
 
+  # EasyTier 环境变量与 Action 传参归一化
+  export EASYTIER_NETWORK_NAME="${INPUT_EASYTIER_NETWORK_NAME:-${EASYTIER_NETWORK_NAME:-}}"
+  export EASYTIER_NETWORK_SECRET="${INPUT_EASYTIER_NETWORK_SECRET:-${EASYTIER_NETWORK_SECRET:-}}"
+  export EASYTIER_IPV4="${INPUT_EASYTIER_IPV4:-${EASYTIER_IPV4:-}}"
+  export EASYTIER_PEERS="${INPUT_EASYTIER_PEERS:-${EASYTIER_PEERS:-}}"
+  export EASYTIER_NO_TUN="${INPUT_EASYTIER_NO_TUN:-${EASYTIER_NO_TUN:-true}}"
+  export EASYTIER_ENABLED="${INPUT_EASYTIER_ENABLED:-${EASYTIER_ENABLED:-true}}"
+  export EASYTIER_RPC_PORT="${INPUT_EASYTIER_RPC_PORT:-${EASYTIER_RPC_PORT:-15888}}"
+
+  if [ -n "$EASYTIER_NETWORK_NAME" ]; then
+    log_guardian "🌐 [EasyTier] 检测到虚拟网络配置: Network=$EASYTIER_NETWORK_NAME, No-TUN=$EASYTIER_NO_TUN, IPv4=${EASYTIER_IPV4:-DHCP}"
+  fi
+
   if [ ! -f "${DSH_HOME_DIR}/settings.yaml" ]; then
     cat <<EOF > "${DSH_HOME_DIR}/settings.yaml"
 ui-onboarding:
@@ -451,8 +490,8 @@ case "${1:-}" in
   stage-b)
     init_env
     stage_to_slot_b "."
-    echo "⚡ 正在重启 DSH 服务以激活 Slot B 测试..."
-    pkill -f "dsh web" || true
+    echo "⚡ 候选代码已成功写入 Slot B，正在重启 DSH 服务以激活 Slot B 测试..."
+    (sleep 1 && pkill -f "dsh web") >/dev/null 2>&1 &
     ;;
   promote)
     promote_to_slot_a "$SLOT_B_DIR"

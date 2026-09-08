@@ -84,6 +84,11 @@ graph TD
 - **思考与多步工具实时平铺 + 完成折叠总结**：执行过程中平铺展开，实时反馈多步工具执行与思考进度；执行完毕后自动折叠为单行总结卡片：`思考 X 次，调用工具 Y 次，共用时 Zs (输入 ... · 输出 ... · 缓存 ... · 命中率 ...%)`，支持点击展开/收起及 Token 指标切换。
 - **输入框加号（`+`）多平台文件/图片上传**：常用指令菜单顶部呈现「上传图片」与「上传文件」卡片，与官方 `/` 指令完全杜绝 UI 文字重叠，智能分流多模态附件管道与代码文本。
 
+### 8. 🌐 `dsh-easytier` (EasyTier 异地组网与 No-TUN 用户态接入)
+- **容器免特权 No-TUN 模式 (`--no-tun`)**：依托内置 `smoltcp` 用户态网络协议栈，在无 `/dev/net/tun` 设备或无 Root 权限的云端 Runner / 容器中，仍可直接向虚拟局域网暴露本地 3080 服务。
+- **P2P 极低延迟直连**：虚拟网内其他节点（电脑/手机）通过分配的虚拟 IP（如 `http://10.144.144.1:3080`）直连 DSH，享受点对点高速通信与内网穿透能力。
+- **Action 传参与 WebUI 双向支持**：支持通过 Action 环境变量（`EASYTIER_NETWORK_NAME`、`EASYTIER_NETWORK_SECRET`、`EASYTIER_IPV4` 等）自动组网，同时在 WebUI 设置中提供可视化控制与状态看板。
+
 ---
 
 ## 🚀 快速启动指南
@@ -96,6 +101,10 @@ graph TD
 | `ANTIGRAVITY_REFRESH_TOKEN` | 是 | Google Cloud Code OAuth 2.0 Refresh Token（`1//...`） |
 | `CF_WORKER_URL` | 选填 | Cloudflare Worker 反向代理入口 URL（如 `https://dsh.yourdomain.workers.dev`） |
 | `CF_WORKER_TOKEN` | 选填 | 用于向 Cloudflare Worker 更新隧道地址的 API 访问令牌 |
+| `EASYTIER_NETWORK_NAME` | 选填 | EasyTier 异地组网的虚拟网络名称（填写即可自动启用 EasyTier 接入） |
+| `EASYTIER_NETWORK_SECRET` | 选填 | EasyTier 虚拟网络访问密码 |
+| `EASYTIER_IPV4` | 选填 | EasyTier 静态虚拟 IP（如 `10.144.144.1`，留空默认走 DHCP） |
+| `EASYTIER_PEERS` | 选填 | EasyTier 自定义引导节点 Peer 列表（逗号分隔，留空默认使用官方公共节点） |
 
 ### 2. 触发 GitHub Actions 工作流
 1. 打开仓库的 **Actions** 页面；
@@ -118,7 +127,8 @@ graph TD
 │   ├── dsh-web-search-antigravity/# Google Grounding 联网搜索插件
 │   ├── dsh-web-search-selector/   # 搜索源切换器插件
 │   ├── dsh-image-gen-antigravity/ # Gemini 图像生成插件
-│   └── dsh-cloudflare-tunnel/     # Cloudflare 穿透与 Worker 同步插件
+│   ├── dsh-cloudflare-tunnel/     # Cloudflare 穿透与 Worker 同步插件
+│   └── dsh-easytier/              # EasyTier 异地组网与 No-TUN 接入插件
 ├── cloudflare-worker.js          # Cloudflare Worker 动态路由代码
 ├── cloudflare-worker-proxy.js    # Cloudflare Worker 高性能流式反向代理
 ├── cordis.patch.yml              # DSH Web Profile 插件注册编排文件
@@ -144,6 +154,8 @@ graph TD
    提供强大的 Gemini 旗舰系列大模型推理服务与 Grounding Search 接口支持。
 5. **[Cloudflare Tunnel & Workers](https://www.cloudflare.com/)**  
    提供零公网端口暴露的安全隧道与边缘轻量级动态路由代理方案。
+6. **[EasyTier](https://github.com/EasyTier/EasyTier)**  
+   提供基于 Rust 实现的高性能去中心化 Mesh VPN，其独创的用户态 No-TUN 与 smoltcp 模式为云端无特权容器提供了极致优雅的异地组网能力。
 
 ---
 
