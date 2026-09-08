@@ -33,6 +33,7 @@
 		overridden: "Overridden",
 		reset: "Reset to default",
 		save: "Save",
+		saved: "Saved!",
 		saving: "Saving…",
 		discard: "Discard",
 		unsaved: "Unsaved",
@@ -72,6 +73,7 @@
 		overridden: "已覆盖",
 		reset: "恢复默认",
 		save: "保存",
+		saved: "已保存！",
 		saving: "保存中…",
 		discard: "放弃修改",
 		unsaved: "未保存",
@@ -110,7 +112,7 @@
 			const [copied, setCopied] = react.useState(false);
 			const { t } = props;
 			const state = props.useEasyTierCard((snapshot) => snapshot);
-			const disabled = !state.writable;
+			const disabled = state.writable === false;
 
 			const currentEnabled = state.draftEnabled ?? state.effectiveEnabled ?? true;
 			const currentNetworkName = state.draftNetworkName ?? state.effectiveNetworkName ?? "";
@@ -144,8 +146,14 @@
 				if (!currentNetworkName) {
 					return { text: t("statusUnconfigured"), bg: "var(--dsw-alias-bg-module-platform, #f3f4f6)", color: "var(--dsw-alias-label-secondary, #6b7280)" };
 				}
-				if (state.virtualIp) {
+				if (state.virtualIp || state.status === "running") {
 					return { text: t("statusRunning"), bg: "#dcfce7", color: "#15803d" };
+				}
+				if (state.status === "error") {
+					return { text: t("statusError"), bg: "#fee2e2", color: "#b91c1c" };
+				}
+				if (state.status === "stopped") {
+					return { text: t("statusStopped"), bg: "var(--dsw-alias-bg-module-platform, #f3f4f6)", color: "var(--dsw-alias-label-secondary, #6b7280)" };
 				}
 				return { text: t("statusStarting"), bg: "#fef3c7", color: "#b45309" };
 			};
@@ -211,6 +219,9 @@
 									dirty ? (0, react_jsx_runtime.jsx)("span", {
 										style: { fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "var(--dsw-alias-brand-subtle, #e0f2fe)", color: "var(--dsw-alias-brand-primary, #0284c7)" },
 										children: t("unsaved")
+									}) : state.justSaved ? (0, react_jsx_runtime.jsx)("span", {
+										style: { fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#15803d", fontWeight: 500 },
+										children: t("saved")
 									}) : null,
 									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {
 										style: { transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }
@@ -460,16 +471,17 @@
 											padding: "6px 14px",
 											borderRadius: 6,
 											border: "none",
-											background: "var(--dsw-alias-brand-primary, #0284c7)",
+											background: state.justSaved ? "#15803d" : "var(--dsw-alias-brand-primary, #0284c7)",
 											color: "#ffffff",
 											fontSize: 12,
 											fontWeight: 500,
-											cursor: dirty ? "pointer" : "default",
-											opacity: dirty ? 1 : 0.5
+											cursor: (dirty && !state.saving) ? "pointer" : "default",
+											opacity: (dirty || state.saving) ? 1 : (state.justSaved ? 0.9 : 0.5),
+											transition: "all 0.2s"
 										},
 										disabled: !dirty || disabled || state.saving,
 										onClick: props.save,
-										children: t(state.saving ? "saving" : "save")
+										children: state.saving ? t("saving") : (state.justSaved ? t("saved") : t("save"))
 									})
 								]
 							})
@@ -480,90 +492,159 @@
 		}
 
 		class EasyTierController {
-			constructor(scope, api) {
+			constructor(scope) {
 				this.scope = scope;
-				this.api = api;
 				this.draft = {};
 				this.saving = false;
+				this.justSaved = false;
+				this.justSavedTimer = null;
+				this.runtimeStatus = null;
+				this.pollTimer = null;
+				this.localSaved = this.loadLocalSaved();
 				this.store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(this.projection());
-				scope.subscribe(() => {
-					this.store.set(this.projection());
-				});
+				if (scope && typeof scope.subscribe === "function") {
+					scope.subscribe(() => {
+						this.store.set(this.projection());
+					});
+				}
+				this.startPolling();
+			}
+
+			startPolling() {
+				this.fetchStatus();
+				if (typeof setInterval !== "undefined") {
+					this.pollTimer = setInterval(() => this.fetchStatus(), 3000);
+				}
+			}
+
+			async fetchStatus() {
+				try {
+					if (typeof fetch !== "undefined") {
+						const res = await fetch('/api/easytier/status');
+						if (res.ok) {
+							const data = await res.json();
+							if (data && typeof data === "object") {
+								this.runtimeStatus = data;
+								this.store.set(this.projection());
+							}
+						}
+					}
+				} catch (e) {}
+			}
+
+			loadLocalSaved() {
+				try {
+					if (typeof localStorage !== "undefined") {
+						const raw = localStorage.getItem("dsh_easytier_settings");
+						if (raw) return JSON.parse(raw);
+					}
+				} catch (e) {}
+				return null;
 			}
 
 			projection() {
-				const snapshot = this.scope.getSnapshot();
+				const snapshot = (this.scope && typeof this.scope.getSnapshot === "function")
+					? this.scope.getSnapshot()
+					: {};
 				const effective = snapshot.value ?? {};
+				const local = this.localSaved ?? {};
+				const runtime = this.runtimeStatus ?? {};
+
+				const effectiveEnabled = this.draft.enabled ?? local.enabled ?? effective.enabled ?? true;
+				const effectiveNetworkName = this.draft.networkName ?? local.networkName ?? effective.networkName ?? "";
+				const effectiveNetworkSecret = this.draft.networkSecret ?? local.networkSecret ?? effective.networkSecret ?? "";
+				const effectiveIpv4 = this.draft.ipv4 ?? local.ipv4 ?? effective.ipv4 ?? "";
+				const effectivePeers = this.draft.peers ?? local.peers ?? effective.peers ?? "tcp://39.108.52.138:11010, tcp://public.easytier.top:11010";
+				const effectiveNoTun = this.draft.noTun ?? local.noTun ?? effective.noTun ?? true;
+
+				const virtualIp = runtime.virtualIp || effective.virtualIp || local.virtualIp || "";
+				const status = runtime.status || (virtualIp ? "running" : (effectiveNetworkName ? "starting" : "unconfigured"));
+
 				return {
-					writable: snapshot.writable,
-					effectiveEnabled: effective.enabled ?? true,
-					effectiveNetworkName: effective.networkName ?? "",
-					effectiveNetworkSecret: effective.networkSecret ?? "",
-					effectiveIpv4: effective.ipv4 ?? "",
-					effectivePeers: effective.peers ?? "tcp://39.108.52.138:11010, tcp://public.easytier.top:11010",
-					effectiveNoTun: effective.noTun ?? true,
+					writable: snapshot.writable !== false,
+					effectiveEnabled: local.enabled ?? effective.enabled ?? true,
+					effectiveNetworkName: local.networkName ?? effective.networkName ?? "",
+					effectiveNetworkSecret: local.networkSecret ?? effective.networkSecret ?? "",
+					effectiveIpv4: local.ipv4 ?? effective.ipv4 ?? "",
+					effectivePeers: local.peers ?? effective.peers ?? "tcp://39.108.52.138:11010, tcp://public.easytier.top:11010",
+					effectiveNoTun: local.noTun ?? effective.noTun ?? true,
 					draftEnabled: this.draft.enabled,
 					draftNetworkName: this.draft.networkName,
 					draftNetworkSecret: this.draft.networkSecret,
 					draftIpv4: this.draft.ipv4,
 					draftPeers: this.draft.peers,
 					draftNoTun: this.draft.noTun,
-					virtualIp: effective.virtualIp || "",
-					saving: this.saving
+					virtualIp,
+					status,
+					peersCount: runtime.peersCount ?? 0,
+					peerId: runtime.peerId ?? null,
+					saving: this.saving,
+					justSaved: this.justSaved
 				};
 			}
 
 			setEnabled(val) {
 				this.draft.enabled = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			setNetworkName(val) {
 				this.draft.networkName = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			setNetworkSecret(val) {
 				this.draft.networkSecret = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			setIpv4(val) {
 				this.draft.ipv4 = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			setPeers(val) {
 				this.draft.peers = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			setNoTun(val) {
 				this.draft.noTun = val;
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			discard() {
 				this.draft = {};
+				this.justSaved = false;
 				this.store.set(this.projection());
 			}
 
 			async reset() {
 				this.draft = {};
+				this.justSaved = false;
 				try {
-					await this.api.settings.mutate({
-						ns: NS,
-						ops: [
-							{ op: "delete", path: ["enabled"] },
-							{ op: "delete", path: ["networkName"] },
-							{ op: "delete", path: ["networkSecret"] },
-							{ op: "delete", path: ["ipv4"] },
-							{ op: "delete", path: ["peers"] },
-							{ op: "delete", path: ["noTun"] }
-						]
-					});
+					if (typeof localStorage !== "undefined") {
+						localStorage.removeItem("dsh_easytier_settings");
+					}
+					this.localSaved = null;
+					if (this.scope && typeof this.scope.mutate === "function") {
+						await this.scope.mutate([
+							{ op: "unset", path: ["enabled"] },
+							{ op: "unset", path: ["networkName"] },
+							{ op: "unset", path: ["networkSecret"] },
+							{ op: "unset", path: ["ipv4"] },
+							{ op: "unset", path: ["peers"] },
+							{ op: "unset", path: ["noTun"] }
+						]);
+					}
 				} catch (e) {
-					console.error(e);
+					console.warn("[easytier] reset error:", e);
 				}
 				this.store.set(this.projection());
 			}
@@ -571,7 +652,19 @@
 			async save() {
 				if (Object.keys(this.draft).length === 0) return;
 				this.saving = true;
+				this.justSaved = false;
 				this.store.set(this.projection());
+
+				const current = this.projection();
+				const nextSaved = {
+					enabled: this.draft.enabled ?? current.effectiveEnabled,
+					networkName: this.draft.networkName ?? current.effectiveNetworkName,
+					networkSecret: this.draft.networkSecret ?? current.effectiveNetworkSecret,
+					ipv4: this.draft.ipv4 ?? current.effectiveIpv4,
+					peers: this.draft.peers ?? current.effectivePeers,
+					noTun: this.draft.noTun ?? current.effectiveNoTun
+				};
+
 				try {
 					const ops = [];
 					if (this.draft.enabled !== void 0) ops.push({ op: "set", path: ["enabled"], value: this.draft.enabled });
@@ -580,10 +673,45 @@
 					if (this.draft.ipv4 !== void 0) ops.push({ op: "set", path: ["ipv4"], value: this.draft.ipv4 });
 					if (this.draft.peers !== void 0) ops.push({ op: "set", path: ["peers"], value: this.draft.peers });
 					if (this.draft.noTun !== void 0) ops.push({ op: "set", path: ["noTun"], value: this.draft.noTun });
-					await this.api.settings.mutate({ ns: NS, ops });
+
+					if (ops.length > 0 && this.scope && typeof this.scope.mutate === "function") {
+						try {
+							await this.scope.mutate(ops);
+						} catch (scopeErr) {
+							console.warn("[easytier] scope.mutate warning:", scopeErr);
+						}
+					}
+
+					// 同步发送到 backend HTTP API 接口即时重载/拉起守护
+					try {
+						if (typeof fetch !== "undefined") {
+							await fetch('/api/easytier/config', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify(nextSaved)
+							});
+						}
+					} catch (apiErr) {}
+
+					// 本地持久化缓存
+					try {
+						if (typeof localStorage !== "undefined") {
+							localStorage.setItem("dsh_easytier_settings", JSON.stringify(nextSaved));
+						}
+						this.localSaved = nextSaved;
+					} catch (lsErr) {}
+
 					this.draft = {};
+					this.justSaved = true;
+					if (this.justSavedTimer) clearTimeout(this.justSavedTimer);
+					this.justSavedTimer = setTimeout(() => {
+						this.justSaved = false;
+						this.store.set(this.projection());
+					}, 2500);
+
+					await this.fetchStatus();
 				} catch (e) {
-					console.error(e);
+					console.error("[easytier] save error:", e);
 				} finally {
 					this.saving = false;
 					this.store.set(this.projection());
@@ -609,19 +737,15 @@
 		const inject = [
 			"slots",
 			"locale",
-			"connection",
 			"settingsScope"
 		];
 
 		function apply(ctx) {
-			const { api } = ctx.get("connection");
 			const t = ctx.locale.bind(NS);
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "easytier: locales");
 
-			const controller = new EasyTierController(
-				ctx.settingsScope.bind({ namespace: NS }),
-				api
-			);
+			const scope = ctx.settingsScope ? ctx.settingsScope.bind({ namespace: NS }) : null;
+			const controller = new EasyTierController(scope);
 
 			ctx.slots.inject("settings.plugin.item", function* () {
 				yield ctx.slots.register({

@@ -3,12 +3,23 @@ import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
+import z from '@deepseek-ai/schemastery';
 
 const execFileAsync = promisify(execFile);
 
 const name = 'easytier';
 const inject = [];
 const NS = 'easytier';
+
+export const Config = z.object({
+  enabled: z.boolean().default(true),
+  networkName: z.string().default(''),
+  networkSecret: z.string().default(''),
+  ipv4: z.string().default(''),
+  peers: z.string().default('tcp://39.108.52.138:11010, tcp://public.easytier.top:11010'),
+  noTun: z.boolean().default(true),
+  port: z.number().default(3080)
+});
 
 /**
  * 查找 EasyTier 二进制文件路径
@@ -65,10 +76,13 @@ export class EasyTierManager {
   peerId = null;
   peers = [];
   stunInfo = null;
+  settingsSource = null;
 
   #pollTimer = null;
   #restartTimer = null;
   #disposed = false;
+
+  dynamicSettings = {};
 
   constructor(ctx, config) {
     this.ctx = ctx;
@@ -78,26 +92,34 @@ export class EasyTierManager {
   getEffectiveConfig() {
     const env = process.env;
     const cfg = this.config || {};
+    const settingsFromSource = (this.settingsSource && typeof this.settingsSource === 'function')
+      ? (this.settingsSource() || {})
+      : {};
+    const settings = { ...settingsFromSource, ...this.dynamicSettings };
 
     const networkName =
+      settings.networkName ||
       env.EASYTIER_NETWORK_NAME ||
       env.INPUT_EASYTIER_NETWORK_NAME ||
       cfg.networkName ||
       '';
 
     const networkSecret =
+      settings.networkSecret ||
       env.EASYTIER_NETWORK_SECRET ||
       env.INPUT_EASYTIER_NETWORK_SECRET ||
       cfg.networkSecret ||
       '';
 
     const ipv4 =
+      settings.ipv4 ||
       env.EASYTIER_IPV4 ||
       env.INPUT_EASYTIER_IPV4 ||
       cfg.ipv4 ||
       '';
 
     const rawPeers =
+      settings.peers ||
       env.EASYTIER_PEERS ||
       env.INPUT_EASYTIER_PEERS ||
       cfg.peers ||
@@ -110,9 +132,11 @@ export class EasyTierManager {
     const peers = normalizePeers(rawPeers);
 
     const noTun =
-      env.EASYTIER_NO_TUN !== undefined
-        ? env.EASYTIER_NO_TUN !== 'false' && env.EASYTIER_NO_TUN !== '0'
-        : cfg.noTun !== false; // 容器内默认开启 --no-tun
+      settings.noTun !== undefined
+        ? settings.noTun !== false
+        : (env.EASYTIER_NO_TUN !== undefined
+            ? env.EASYTIER_NO_TUN !== 'false' && env.EASYTIER_NO_TUN !== '0'
+            : cfg.noTun !== false); // 容器内默认开启 --no-tun
 
     const useSmoltcp =
       env.EASYTIER_USE_SMOLTCP !== undefined
@@ -127,12 +151,14 @@ export class EasyTierManager {
 
     const rpcPortNumber = rpcPortal.includes(':') ? rpcPortal.split(':')[1] : rpcPortal;
 
-    const port = Number(cfg.port || env.DSH_PORT || 3080);
+    const port = Number(settings.port || cfg.port || env.DSH_PORT || 3080);
 
     const enabled =
-      env.EASYTIER_ENABLED !== undefined
-        ? env.EASYTIER_ENABLED !== 'false' && env.EASYTIER_ENABLED !== '0'
-        : cfg.enabled !== false;
+      settings.enabled !== undefined
+        ? settings.enabled !== false
+        : (env.EASYTIER_ENABLED !== undefined
+            ? env.EASYTIER_ENABLED !== 'false' && env.EASYTIER_ENABLED !== '0'
+            : cfg.enabled !== false);
 
     return {
       enabled,
@@ -149,6 +175,31 @@ export class EasyTierManager {
       cliPath: cfg.cliPath || findEasyTierBinary('easytier-cli'),
       extraArgs: cfg.extraArgs || []
     };
+  }
+
+  async onSettingsChanged(newSettings) {
+    if (this.#disposed) return;
+    if (newSettings && typeof newSettings === 'object') {
+      this.dynamicSettings = { ...this.dynamicSettings, ...newSettings };
+    }
+    this.ctx.logger?.info?.('[easytier] Settings updated from WebUI/host store, reconciling network state...');
+    const conf = this.getEffectiveConfig();
+    if (!conf.enabled) {
+      if (this.process) this.stop();
+      this.status = 'stopped';
+      return;
+    }
+    if (!conf.networkName) {
+      if (this.process) this.stop();
+      this.status = 'unconfigured';
+      return;
+    }
+    if (this.process && conf.networkName !== this.networkName) {
+      this.ctx.logger?.info?.(`[easytier] Network name changed from ${this.networkName} to ${conf.networkName}, restarting...`);
+      await this.restart();
+    } else if (!this.process) {
+      await this.start();
+    }
   }
 
   async start() {
@@ -429,7 +480,24 @@ export function apply(ctx, config) {
     ctx.set('easytier', manager);
   } catch {}
 
-  // 1. 动态注入 WebRuntime 白名单
+  // 1. 注入 settings 服务绑定以支持持久化存储与动态配置监听
+  ctx.inject(['settings'], (settingsCtx) => {
+    try {
+      settingsCtx.settings.installSection(ctx, NS, Config, config, {
+        setSource: (source) => {
+          manager.settingsSource = source;
+        },
+        onChange: () => {
+          const sec = manager.settingsSource?.() || {};
+          manager.onSettingsChanged(sec);
+        }
+      });
+    } catch (e) {
+      ctx.logger?.warn?.(`[easytier] Failed to install settings section: ${e.message}`);
+    }
+  });
+
+  // 2. 动态注入 WebRuntime 白名单
   ctx.inject(['webRuntime'], (runtimeCtx) => {
     try {
       const runtime = runtimeCtx.webRuntime;
@@ -441,7 +509,7 @@ export function apply(ctx, config) {
     } catch {}
   });
 
-  // 2. Shell 环境变量集成
+  // 3. Shell 环境变量集成
   ctx.inject(['shellEnv'], (runtimeCtx) => {
     try {
       runtimeCtx.shellEnv.register({
@@ -460,7 +528,7 @@ export function apply(ctx, config) {
     } catch {}
   });
 
-  // 3. System Prompt 上下文集成
+  // 4. System Prompt 上下文集成
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
       promptCtx.systemPrompt.section({
@@ -476,7 +544,7 @@ export function apply(ctx, config) {
     } catch {}
   });
 
-  // 4. Agent Tools 模型工具集成
+  // 5. Agent Tools 模型工具集成
   ctx.inject(['tools'], (toolCtx) => {
     try {
       toolCtx.tools.register({
@@ -508,7 +576,72 @@ export function apply(ctx, config) {
     } catch {}
   });
 
-  // 5. 自动启动
+  // 6. 注册 WebServer HTTP API 路由，供前端实时查询状态与配置提交
+  ctx.inject(['webServer'], (httpCtx) => {
+    try {
+      httpCtx.webServer.register({
+        kind: 'prefix',
+        path: '/api/easytier',
+        handler: async (req, res) => {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return;
+          }
+
+          const url = new URL(req.url ?? '/', 'http://localhost');
+          const pathname = url.pathname.replace(/\/+$/, '');
+
+          if (req.method === 'GET' && (pathname === '/api/easytier/status' || pathname === '/api/easytier')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              status: manager.status,
+              virtualIp: manager.virtualIp,
+              url: manager.url,
+              networkName: manager.networkName,
+              peerId: manager.peerId,
+              peersCount: manager.peers.length,
+              stunInfo: manager.stunInfo,
+              error: manager.error
+            }));
+            return;
+          }
+
+          if (req.method === 'POST' && pathname === '/api/easytier/config') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', async () => {
+              try {
+                const parsed = JSON.parse(body || '{}');
+                await manager.onSettingsChanged(parsed);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  ok: true,
+                  status: manager.status,
+                  virtualIp: manager.virtualIp,
+                  url: manager.url
+                }));
+              } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: e.message }));
+              }
+            });
+            return;
+          }
+
+          res.writeHead(404);
+          res.end('Not Found');
+        }
+      });
+    } catch (e) {
+      ctx.logger?.warn?.(`[easytier] webServer registration failed: ${e.message}`);
+    }
+  });
+
+  // 7. 自动启动
   const effective = manager.getEffectiveConfig();
   if (effective.enabled && effective.networkName) {
     manager.start();

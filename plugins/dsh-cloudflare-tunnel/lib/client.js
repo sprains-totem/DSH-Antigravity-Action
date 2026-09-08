@@ -395,14 +395,13 @@
 			async reset() {
 				this.draft = {};
 				try {
-					await this.api.settings.mutate({
-						ns: NS,
-						ops: [
-							{ op: "delete", path: ["port"] },
-							{ op: "delete", path: ["token"] },
-							{ op: "delete", path: ["enabled"] }
-						]
-					});
+					if (this.scope && typeof this.scope.mutate === "function") {
+						await this.scope.mutate([
+							{ op: "unset", path: ["port"] },
+							{ op: "unset", path: ["token"] },
+							{ op: "unset", path: ["enabled"] }
+						]);
+					}
 				} catch (e) {
 					console.error(e);
 				}
@@ -418,7 +417,9 @@
 					if (this.draft.port !== void 0) ops.push({ op: "set", path: ["port"], value: this.draft.port });
 					if (this.draft.token !== void 0) ops.push({ op: "set", path: ["token"], value: this.draft.token });
 					if (this.draft.enabled !== void 0) ops.push({ op: "set", path: ["enabled"], value: this.draft.enabled });
-					await this.api.settings.mutate({ ns: NS, ops });
+					if (ops.length > 0 && this.scope && typeof this.scope.mutate === "function") {
+						await this.scope.mutate(ops);
+					}
 					this.draft = {};
 				} catch (e) {
 					console.error(e);
