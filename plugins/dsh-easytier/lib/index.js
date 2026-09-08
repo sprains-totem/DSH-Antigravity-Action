@@ -394,7 +394,7 @@ export class EasyTierManager {
     if (this.#pollTimer) clearInterval(this.#pollTimer);
 
     const poll = async () => {
-      if (this.#disposed || !this.process) return;
+      if (this.#disposed) return;
       try {
         const cli = conf.cliPath;
         // 查询 node 信息
@@ -407,7 +407,7 @@ export class EasyTierManager {
         if (nodeInfo) {
           this.peerId = nodeInfo.peer_id;
           this.stunInfo = nodeInfo.stun_info;
-          if (nodeInfo.ipv4_addr && !this.virtualIp) {
+          if (nodeInfo.ipv4_addr) {
             this.setVirtualIp(nodeInfo.ipv4_addr, conf.port);
           }
         }
@@ -647,6 +647,7 @@ export function apply(ctx, config) {
     manager.start();
   } else {
     manager.status = effective.networkName ? 'stopped' : 'unconfigured';
+    manager.startPolling(effective);
   }
 
   ctx.on('dispose', () => {
