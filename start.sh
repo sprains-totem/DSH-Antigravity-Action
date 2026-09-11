@@ -8,7 +8,7 @@
 # ==============================================================================
 
 DSH_PORT="${DSH_PORT:-3080}"
-DSH_HOME_DIR="${HOME}/.dsh"
+DSH_HOME_DIR="${DSH_HOME_DIR:-${HOME}/.dsh}"
 export PATH="${DSH_HOME_DIR}/bin:${PATH}"
 SLOT_A_DIR="${DSH_HOME_DIR}/slots/slot-a"
 SLOT_B_DIR="${DSH_HOME_DIR}/slots/slot-b"
@@ -17,6 +17,30 @@ SLOT_STATUS_FILE="${DSH_HOME_DIR}/slots/status.json"
 PROFILE_WEB_DIR="${DSH_HOME_DIR}/profiles/web"
 GUARDIAN_LOG="/tmp/dsh_guardian.log"
 CRASH_LOG="/tmp/dsh_crash.log"
+
+# ==============================================================================
+# 🔄 会话跨 Action 同步与端到端隐私加密配置 (Session Sync & E2EE)
+# ==============================================================================
+DSH_SYNC_SECRET="${INPUT_DSH_SYNC_SECRET:-${DSH_SYNC_SECRET:-${INPUT_DSH_SYNC_PASSWORD:-${DSH_SYNC_PASSWORD:-}}}}"
+DSH_SYNC_GIT_ENABLED="${INPUT_DSH_SYNC_GIT_ENABLED:-${DSH_SYNC_GIT_ENABLED:-true}}"
+DSH_SYNC_GIT_BRANCH="${INPUT_DSH_SYNC_GIT_BRANCH:-${DSH_SYNC_GIT_BRANCH:-dsh-sessions}}"
+DSH_SYNC_INTERVAL="${INPUT_DSH_SYNC_INTERVAL:-${DSH_SYNC_INTERVAL:-300}}"
+
+# Cloudflare R2 对象存储配置
+R2_ACCOUNT_ID="${INPUT_R2_ACCOUNT_ID:-${R2_ACCOUNT_ID:-}}"
+R2_ACCESS_KEY_ID="${INPUT_R2_ACCESS_KEY_ID:-${R2_ACCESS_KEY_ID:-}}"
+R2_SECRET_ACCESS_KEY="${INPUT_R2_SECRET_ACCESS_KEY:-${R2_SECRET_ACCESS_KEY:-}}"
+R2_BUCKET="${INPUT_R2_BUCKET:-${R2_BUCKET:-dsh-sessions}}"
+
+# 通用 S3 兼容对象存储配置
+S3_ENDPOINT="${INPUT_S3_ENDPOINT:-${S3_ENDPOINT:-}}"
+S3_ACCESS_KEY_ID="${INPUT_S3_ACCESS_KEY_ID:-${S3_ACCESS_KEY_ID:-}}"
+S3_SECRET_ACCESS_KEY="${INPUT_S3_SECRET_ACCESS_KEY:-${S3_SECRET_ACCESS_KEY:-}}"
+S3_BUCKET="${INPUT_S3_BUCKET:-${S3_BUCKET:-dsh-sessions}}"
+S3_REGION="${INPUT_S3_REGION:-${S3_REGION:-auto}}"
+
+RCLONE_CONF="/tmp/dsh_rclone.conf"
+LAST_SYNC_HASH_FILE="/tmp/dsh_last_sync_hash"
 
 log_guardian() {
   local msg="$1"
@@ -132,9 +156,421 @@ init_env() {
     sudo npm install -g esbuild preact marked
   fi
 
+  # 若启用了对象存储同步且未安装 rclone，自动安装 rclone
+  if is_s3_sync_enabled && ! command -v rclone &> /dev/null; then
+    echo "正在安装 rclone 以支持对象存储会话同步..."
+    sudo apt-get install -y -qq rclone 2>/dev/null || true
+  fi
+
   mkdir -p "$SLOT_A_DIR" "$SLOT_B_DIR" "$PROFILE_WEB_DIR/plugins" "$PROFILE_WEB_DIR/node_modules"
   touch "$GUARDIAN_LOG" "$CRASH_LOG"
   [ -f "$SLOT_ACTIVE_FILE" ] || echo "slot-a" > "$SLOT_ACTIVE_FILE"
+}
+
+# ==============================================================================
+# 🔄 会话跨 Action 同步与端到端隐私加密模块 (Session Sync & E2EE)
+# ==============================================================================
+
+# 检查是否启用了端到端加密
+is_crypto_enabled() {
+  [ -n "$DSH_SYNC_SECRET" ]
+}
+
+# 检查是否配置并启用了对象存储同步 (Cloudflare R2 或通用 S3)
+is_s3_sync_enabled() {
+  if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_ACCESS_KEY_ID" ] && [ -n "$R2_SECRET_ACCESS_KEY" ]; then
+    return 0
+  fi
+  if [ -n "$S3_ENDPOINT" ] && [ -n "$S3_ACCESS_KEY_ID" ] && [ -n "$S3_SECRET_ACCESS_KEY" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# 检查是否启用了 Git 孤立分支同步
+is_git_sync_enabled() {
+  if [ "$DSH_SYNC_GIT_ENABLED" != "true" ]; then
+    return 1
+  fi
+  if [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_TOKEN" ]; then
+    return 0
+  fi
+  if git rev-parse --is-inside-work-tree &>/dev/null; then
+    local r
+    r="$(git config --get remote.origin.url 2>/dev/null || true)"
+    [ -n "$r" ] && return 0
+  fi
+  return 1
+}
+
+# 计算本地会话目录哈希 (用于变动感知与防重推送)
+calc_sessions_hash() {
+  local target_dirs=()
+  [ -d "${DSH_HOME_DIR}/sessions" ] && target_dirs+=("${DSH_HOME_DIR}/sessions")
+  [ -d "${DSH_HOME_DIR}/storages" ] && target_dirs+=("${DSH_HOME_DIR}/storages")
+
+  if [ ${#target_dirs[@]} -eq 0 ]; then
+    echo "empty"
+    return
+  fi
+
+  find "${target_dirs[@]}" -type f -printf '%T@ %p\n' 2>/dev/null | sort | md5sum | cut -d' ' -f1
+}
+
+# 动态配置 rclone 临时内存凭据
+setup_rclone_conf() {
+  rm -f "$RCLONE_CONF"
+  touch "$RCLONE_CONF"
+  chmod 600 "$RCLONE_CONF"
+
+  if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_ACCESS_KEY_ID" ] && [ -n "$R2_SECRET_ACCESS_KEY" ]; then
+    cat <<EOF >> "$RCLONE_CONF"
+[dsh-r2]
+type = s3
+provider = Cloudflare
+access_key_id = $R2_ACCESS_KEY_ID
+secret_access_key = $R2_SECRET_ACCESS_KEY
+endpoint = https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+acl = private
+EOF
+  fi
+
+  if [ -n "$S3_ENDPOINT" ] && [ -n "$S3_ACCESS_KEY_ID" ] && [ -n "$S3_SECRET_ACCESS_KEY" ]; then
+    cat <<EOF >> "$RCLONE_CONF"
+[dsh-s3]
+type = s3
+provider = Other
+access_key_id = $S3_ACCESS_KEY_ID
+secret_access_key = $S3_SECRET_ACCESS_KEY
+endpoint = $S3_ENDPOINT
+region = $S3_REGION
+acl = private
+EOF
+  fi
+}
+
+# 打包会话并进行可选端到端 AES-256 加密
+pack_and_encrypt_sessions() {
+  local out_file="$1"
+  mkdir -p "$(dirname "$out_file")"
+  rm -f "$out_file"
+
+  local items=()
+  [ -d "${DSH_HOME_DIR}/sessions" ] && items+=("sessions")
+  [ -d "${DSH_HOME_DIR}/storages" ] && items+=("storages")
+
+  if [ ${#items[@]} -eq 0 ]; then
+    return 1
+  fi
+
+  if is_crypto_enabled; then
+    tar -I zstd -cf - -C "${DSH_HOME_DIR}" "${items[@]}" 2>/dev/null | \
+      openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass "pass:$DSH_SYNC_SECRET" -out "$out_file" 2>/dev/null
+  else
+    tar -I zstd -cf "$out_file" -C "${DSH_HOME_DIR}" "${items[@]}" 2>/dev/null
+  fi
+
+  [ -f "$out_file" ] && [ -s "$out_file" ]
+}
+
+# 解密并解包还原会话至 ~/.dsh/
+decrypt_and_unpack_sessions() {
+  local in_file="$1"
+  if [ ! -f "$in_file" ] || [ ! -s "$in_file" ]; then
+    return 1
+  fi
+
+  local tmp_restore
+  tmp_restore="$(mktemp -d)"
+
+  # 检查是否为加密数据 (OpenSSL 格式文件头包含 Salted__)
+  local is_encrypted=false
+  if head -c 8 "$in_file" 2>/dev/null | grep -q "Salted__"; then
+    is_encrypted=true
+  fi
+
+  local success=false
+  if [ "$is_encrypted" = true ]; then
+    if is_crypto_enabled; then
+      if openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -pass "pass:$DSH_SYNC_SECRET" -in "$in_file" 2>/dev/null | \
+        tar -I zstd -xf - -C "$tmp_restore" 2>/dev/null; then
+        success=true
+      else
+        log_guardian "❌ [会话同步] 解密失败：密钥不匹配或备份损坏！"
+      fi
+    else
+      log_guardian "⚠️ [会话同步] 远端会话数据已加密，但未提供 DSH_SYNC_SECRET 密码，跳过还原。"
+    fi
+  else
+    if tar -I zstd -xf "$in_file" -C "$tmp_restore" 2>/dev/null; then
+      success=true
+    else
+      log_guardian "❌ [会话同步] 压缩包解压失败：文件损坏或格式不受支持！"
+    fi
+  fi
+
+  if [ "$success" = true ]; then
+    mkdir -p "${DSH_HOME_DIR}/sessions" "${DSH_HOME_DIR}/storages"
+    if [ -d "$tmp_restore/sessions" ]; then
+      cp -r "$tmp_restore/sessions/." "${DSH_HOME_DIR}/sessions/" 2>/dev/null || true
+    fi
+    if [ -d "$tmp_restore/storages" ]; then
+      cp -r "$tmp_restore/storages/." "${DSH_HOME_DIR}/storages/" 2>/dev/null || true
+    fi
+    rm -rf "$tmp_restore"
+    return 0
+  fi
+
+  rm -rf "$tmp_restore"
+  return 1
+}
+
+# 从 Git 孤立分支拉取会话归档
+git_sync_pull() {
+  if ! is_git_sync_enabled; then return 1; fi
+  log_guardian "📥 [Git 同步] 正在从 Git 分支 (${DSH_SYNC_GIT_BRANCH}) 拉取会话备份..."
+
+  local tmp_git_dir
+  tmp_git_dir="$(mktemp -d)"
+  local pull_ok=false
+
+  if git fetch origin "${DSH_SYNC_GIT_BRANCH}:${DSH_SYNC_GIT_BRANCH}" --depth=1 2>/dev/null || \
+     git fetch origin "${DSH_SYNC_GIT_BRANCH}" --depth=1 2>/dev/null; then
+    if git --work-tree="$tmp_git_dir" checkout "${DSH_SYNC_GIT_BRANCH}" -- . 2>/dev/null || \
+       git --work-tree="$tmp_git_dir" checkout "origin/${DSH_SYNC_GIT_BRANCH}" -- . 2>/dev/null; then
+      if [ -f "$tmp_git_dir/dsh_sessions.archive" ]; then
+        if decrypt_and_unpack_sessions "$tmp_git_dir/dsh_sessions.archive"; then
+          pull_ok=true
+          log_guardian "✅ [Git 同步] 成功从 Git 分支 (${DSH_SYNC_GIT_BRANCH}) 还原历史会话！"
+        fi
+      fi
+    fi
+  fi
+
+  rm -rf "$tmp_git_dir"
+  [ "$pull_ok" = true ]
+}
+
+# 将当前会话推送至 Git 孤立分支
+git_sync_push() {
+  local archive_file="$1"
+  if ! is_git_sync_enabled || [ ! -f "$archive_file" ]; then return 1; fi
+
+  log_guardian "📤 [Git 同步] 正在将最新会话推送至 Git 孤立分支 (${DSH_SYNC_GIT_BRANCH})..."
+  local tmp_push_dir
+  tmp_push_dir="$(mktemp -d)"
+
+  cp -f "$archive_file" "$tmp_push_dir/dsh_sessions.archive"
+  cat <<EOF > "$tmp_push_dir/README.md"
+# DSH Antigravity Session Storage Branch
+This branch is automatically managed by DSH Antigravity Action to persist conversation history.
+- Last Sync: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+- Encrypted: $(is_crypto_enabled && echo "true (AES-256-CBC PBKDF2)" || echo "false")
+EOF
+
+  local remote_url=""
+  if [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPOSITORY" ]; then
+    remote_url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+  else
+    remote_url="$(git config --get remote.origin.url 2>/dev/null || echo "")"
+  fi
+
+  if [ -z "$remote_url" ]; then
+    log_guardian "⚠️ [Git 同步] 未找到有效的 Git Remote URL，跳过 Git 同步推送。"
+    rm -rf "$tmp_push_dir"
+    return 1
+  fi
+
+  (
+    cd "$tmp_push_dir"
+    git init -q
+    git config user.name "github-actions[bot]"
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    git checkout -q --orphan "${DSH_SYNC_GIT_BRANCH}"
+    git add dsh_sessions.archive README.md
+    git commit -q -m "chore(sessions): auto sync $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+    git push -q -f "$remote_url" HEAD:"${DSH_SYNC_GIT_BRANCH}" 2>/dev/null
+  )
+  local push_status=$?
+
+  rm -rf "$tmp_push_dir"
+  if [ $push_status -eq 0 ]; then
+    log_guardian "✅ [Git 同步] 成功推送到分支 ${DSH_SYNC_GIT_BRANCH}！"
+    return 0
+  else
+    log_guardian "⚠️ [Git 同步] Git 推送失败 (可能缺少 GITHUB_TOKEN write 权限或网络波动)。"
+    return 1
+  fi
+}
+
+# 从 S3 / Cloudflare R2 拉取会话
+s3_sync_pull() {
+  if ! is_s3_sync_enabled; then return 1; fi
+  setup_rclone_conf
+
+  local tmp_archive="/tmp/dsh_s3_download.archive"
+  rm -f "$tmp_archive"
+  local pull_ok=false
+
+  # 优先尝试 Cloudflare R2
+  if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_ACCESS_KEY_ID" ]; then
+    log_guardian "📥 [R2 同步] 正在从 Cloudflare R2 存储桶 (${R2_BUCKET}) 拉取会话..."
+    if rclone --config "$RCLONE_CONF" copy "dsh-r2:${R2_BUCKET}/dsh_sessions.archive" "/tmp/" 2>/dev/null; then
+      if [ -f "/tmp/dsh_sessions.archive" ]; then
+        mv -f "/tmp/dsh_sessions.archive" "$tmp_archive"
+        if decrypt_and_unpack_sessions "$tmp_archive"; then
+          pull_ok=true
+          log_guardian "✅ [R2 同步] 成功从 Cloudflare R2 还原历史会话！"
+        fi
+      fi
+    fi
+  fi
+
+  # 通用 S3 兼容后端尝试
+  if [ "$pull_ok" = false ] && [ -n "$S3_ENDPOINT" ] && [ -n "$S3_ACCESS_KEY_ID" ]; then
+    log_guardian "📥 [S3 同步] 正在从 S3 存储桶 (${S3_BUCKET}) 拉取会话..."
+    if rclone --config "$RCLONE_CONF" copy "dsh-s3:${S3_BUCKET}/dsh_sessions.archive" "/tmp/" 2>/dev/null; then
+      if [ -f "/tmp/dsh_sessions.archive" ]; then
+        mv -f "/tmp/dsh_sessions.archive" "$tmp_archive"
+        if decrypt_and_unpack_sessions "$tmp_archive"; then
+          pull_ok=true
+          log_guardian "✅ [S3 同步] 成功从 S3 存储桶还原历史会话！"
+        fi
+      fi
+    fi
+  fi
+
+  rm -f "$tmp_archive"
+  [ "$pull_ok" = true ]
+}
+
+# 推送会话至 S3 / Cloudflare R2
+s3_sync_push() {
+  local archive_file="$1"
+  if ! is_s3_sync_enabled || [ ! -f "$archive_file" ]; then return 1; fi
+  setup_rclone_conf
+
+  local push_any=false
+
+  # 推送至 R2
+  if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_ACCESS_KEY_ID" ]; then
+    log_guardian "📤 [R2 同步] 正在上传会话归档至 Cloudflare R2 (${R2_BUCKET})..."
+    local tmp_up="/tmp/dsh_s3_up"
+    mkdir -p "$tmp_up"
+    cp -f "$archive_file" "$tmp_up/dsh_sessions.archive"
+    if rclone --config "$RCLONE_CONF" copy "$tmp_up/dsh_sessions.archive" "dsh-r2:${R2_BUCKET}/" 2>/dev/null; then
+      log_guardian "✅ [R2 同步] 成功同步会话至 Cloudflare R2！"
+      push_any=true
+    else
+      log_guardian "⚠️ [R2 同步] 上传至 Cloudflare R2 失败。"
+    fi
+    rm -rf "$tmp_up"
+  fi
+
+  # 推送至 通用 S3
+  if [ -n "$S3_ENDPOINT" ] && [ -n "$S3_ACCESS_KEY_ID" ]; then
+    log_guardian "📤 [S3 同步] 正在上传会话归档至 S3 (${S3_BUCKET})..."
+    local tmp_up="/tmp/dsh_s3_up"
+    mkdir -p "$tmp_up"
+    cp -f "$archive_file" "$tmp_up/dsh_sessions.archive"
+    if rclone --config "$RCLONE_CONF" copy "$tmp_up/dsh_sessions.archive" "dsh-s3:${S3_BUCKET}/" 2>/dev/null; then
+      log_guardian "✅ [S3 同步] 成功同步会话至 S3 存储桶！"
+      push_any=true
+    else
+      log_guardian "⚠️ [S3 同步] 上传至 S3 失败。"
+    fi
+    rm -rf "$tmp_up"
+  fi
+
+  [ "$push_any" = true ]
+}
+
+# 统一拉取调度器 (启动阶段恢复)
+sync_sessions_pull_all() {
+  log_guardian "=========================================================================="
+  log_guardian "🔄 正在检查并恢复历史会话记录..."
+  if is_crypto_enabled; then
+    log_guardian "🔐 端到端加密已启用 (AES-256-CBC PBKDF2 100k iters)"
+  fi
+
+  local restored=false
+  # 1. 优先尝试从 S3 / R2 拉取
+  if is_s3_sync_enabled; then
+    if s3_sync_pull; then
+      restored=true
+    fi
+  fi
+
+  # 2. 若 S3 未恢复成功，尝试从 Git 分支拉取
+  if [ "$restored" = false ] && is_git_sync_enabled; then
+    if git_sync_pull; then
+      restored=true
+    fi
+  fi
+
+  # 更新最新哈希，防止未产生新对话时重复推送
+  calc_sessions_hash > "$LAST_SYNC_HASH_FILE"
+
+  if [ "$restored" = true ]; then
+    local sess_count=0
+    sess_count=$(find "${DSH_HOME_DIR}/sessions" -name "session.jsonl*" 2>/dev/null | wc -l || echo 0)
+    log_guardian "🎉 历史会话恢复完成！当前可用会话数: $sess_count"
+  else
+    log_guardian "ℹ️ 未发现远端历史会话备份或已处于最新状态。"
+  fi
+  log_guardian "=========================================================================="
+}
+
+# 统一推送调度器 (守护定时 / 退出推送)
+sync_sessions_push_all() {
+  local force="${1:-false}"
+  local cur_hash
+  cur_hash="$(calc_sessions_hash)"
+
+  if [ "$cur_hash" = "empty" ]; then
+    return 0
+  fi
+
+  local last_hash
+  last_hash="$(cat "$LAST_SYNC_HASH_FILE" 2>/dev/null || echo "")"
+
+  if [ "$force" != "true" ] && [ "$cur_hash" = "$last_hash" ]; then
+    return 0
+  fi
+
+  local tmp_archive="/tmp/dsh_sessions_push.archive"
+  if ! pack_and_encrypt_sessions "$tmp_archive"; then
+    return 0
+  fi
+
+  local push_success=false
+
+  # 并行/依次推送至所有已启用的后端
+  if is_s3_sync_enabled; then
+    if s3_sync_push "$tmp_archive"; then
+      push_success=true
+    fi
+  fi
+
+  if is_git_sync_enabled; then
+    if git_sync_push "$tmp_archive"; then
+      push_success=true
+    fi
+  fi
+
+  rm -f "$tmp_archive"
+  if [ "$push_success" = true ]; then
+    echo "$cur_hash" > "$LAST_SYNC_HASH_FILE"
+  fi
+}
+
+# 自动定时同步守护进程
+sync_sessions_daemon() {
+  local interval="${DSH_SYNC_INTERVAL:-300}"
+  while true; do
+    sleep "$interval"
+    sync_sessions_push_all false >/dev/null 2>&1 || true
+  done
 }
 
 # ==============================================================================
@@ -410,6 +846,16 @@ probe_dsh_health() {
 run_dsh() {
   touch "$GUARDIAN_LOG" "$CRASH_LOG"
 
+  # 注册进程退出/终止信号捕获，确保 Action 停机或取消时执行会话持久化
+  trap 'log_guardian "🛑 [自愈守护] 捕获到终止信号，正在持久化同步会话..."; sync_sessions_push_all true; exit 0' INT TERM EXIT
+
+  # 启动前初始拉取并恢复历史会话
+  sync_sessions_pull_all
+
+  # 启动后台定时会话同步守护进程
+  sync_sessions_daemon &
+  local SYNC_DAEMON_PID=$!
+
   # 初始快照准备
   if [ ! -f "$SLOT_A_DIR/cordis.patch.yml" ]; then
     promote_to_slot_a "."
@@ -488,32 +934,42 @@ run_dsh() {
 # ==============================================================================
 # 🎯 CLI 指令路由
 # ==============================================================================
-case "${1:-}" in
-  stage-b)
-    init_env
-    stage_to_slot_b "."
-    echo "⚡ 候选代码已成功写入 Slot B，正在重启 DSH 服务以激活 Slot B 测试..."
-    (sleep 1 && pkill -f "easytier-core" 2>/dev/null || true; pkill -f "dsh web") >/dev/null 2>&1 &
-    ;;
-  promote)
-    promote_to_slot_a "$SLOT_B_DIR"
-    ;;
-  rollback)
-    rollback_to_slot_a
-    pkill -f "dsh web" || true
-    ;;
-  status)
-    echo "===== DSH A/B Slot Status ====="
-    cat "$SLOT_STATUS_FILE" 2>/dev/null || echo "No status recorded"
-    echo ""
-    echo "===== Active Slot ====="
-    cat "$SLOT_ACTIVE_FILE" 2>/dev/null || echo "Unknown"
-    echo ""
-    echo "===== Recent Guardian Log ====="
-    tail -n 15 "$GUARDIAN_LOG" 2>/dev/null || echo "No guardian log"
-    ;;
-  *)
-    init_env
-    run_dsh
-    ;;
-esac
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}" in
+    stage-b)
+      init_env
+      stage_to_slot_b "."
+      echo "⚡ 候选代码已成功写入 Slot B，正在重启 DSH 服务以激活 Slot B 测试..."
+      (sleep 1 && pkill -f "easytier-core" 2>/dev/null || true; pkill -f "dsh web") >/dev/null 2>&1 &
+      ;;
+    promote)
+      promote_to_slot_a "$SLOT_B_DIR"
+      ;;
+    rollback)
+      rollback_to_slot_a
+      pkill -f "dsh web" || true
+      ;;
+    sync-pull)
+      init_env
+      sync_sessions_pull_all
+      ;;
+    sync-push)
+      init_env
+      sync_sessions_push_all true
+      ;;
+    status)
+      echo "===== DSH A/B Slot Status ====="
+      cat "$SLOT_STATUS_FILE" 2>/dev/null || echo "No status recorded"
+      echo ""
+      echo "===== Active Slot ====="
+      cat "$SLOT_ACTIVE_FILE" 2>/dev/null || echo "Unknown"
+      echo ""
+      echo "===== Recent Guardian Log ====="
+      tail -n 15 "$GUARDIAN_LOG" 2>/dev/null || echo "No guardian log"
+      ;;
+    *)
+      init_env
+      run_dsh
+      ;;
+  esac
+fi

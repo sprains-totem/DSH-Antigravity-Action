@@ -155,7 +155,24 @@ plugins/my-plugin/
 
 ---
 
-## 8. Agent 行为准则与防「聪明反被聪明误」铁律 (Hard Invariants)
+## 8. 跨 Action 会话同步与端到端隐私加密机制 (`start.sh`)
+
+为了解决 GitHub Actions 临时容器销毁导致会话记录丢失的问题，`start.sh` 内建了多后端持久化与端到端加密体系：
+
+1. **同步时机与生命周期**：
+   - **Pre-launch (启动前)**：`sync_sessions_pull_all` 优先从 R2/S3 或 Git 孤立分支拉取历史归档，自动解密解压至 `~/.dsh/sessions/` 与 `~/.dsh/storages/`；
+   - **Daemon (后台守护)**：`sync_sessions_daemon` 每 5 分钟通过 MD5 变动检测增量保存会话；
+   - **Shutdown (退出持久化)**：通过 `trap` 捕获 `SIGINT/SIGTERM/EXIT`，在容器销毁或取消前执行最后一次原子推送。
+2. **端到端隐私加密 (E2EE)**：
+   - 若设置了 `DSH_SYNC_SECRET`，所有会话归档在出容器前使用 OpenSSL 进行 `AES-256-CBC PBKDF2` (100k 迭代 + Salt) 加密；
+   - 解密管道具备原子校验与异常隔离，密码错误或备份损坏时绝不破坏本地现有会话。
+3. **多后端支持**：
+   - **Git 孤立分支 (`dsh-sessions`)**：0 外部依赖，利用 GitHub Token 单 commit 覆盖推送；
+   - **Cloudflare R2 / S3**：利用 `rclone` 进行增量上传，支持多端（本地/Action）会话池互通。
+
+---
+
+## 9. Agent 行为准则与防「聪明反被聪明误」铁律 (Hard Invariants)
 
 在 DSH 云端与自愈环境中运行的 Agent 必须严格遵守以下铁律，严禁越权走捷径或做主观假定：
 

@@ -89,6 +89,17 @@ graph TD
 - **P2P 极低延迟直连**：虚拟网内其他节点（电脑/手机）通过分配的虚拟 IP（如 `http://10.144.144.1:3080`）直连 DSH，享受点对点高速通信与内网穿透能力。
 - **Action 传参与 WebUI 双向支持**：支持通过 Action 环境变量（`EASYTIER_NETWORK_NAME`、`EASYTIER_NETWORK_SECRET`、`EASYTIER_IPV4` 等）自动组网，同时在 WebUI 设置中提供可视化控制与状态看板。
 
+### 9. 🔄 跨 Action 会话漫游与端到端隐私加密 (E2EE Session Sync)
+- **多后端冗余持久化**：
+  - **Git 孤立分支（`dsh-sessions`）**：0 外部依赖，利用 GitHub Token 自动在独立分支存储单 commit 覆盖备份，不膨胀主仓库体积。
+  - **Cloudflare R2 / S3 兼容对象存储**：基于 `rclone` 实现秒级实时增量同步，支持多端（本地开发机、云端 Action、移动端）会话池互通。
+- **🔐 端到端 AES-256 隐私强加密**：
+  - 配置 `DSH_SYNC_SECRET` 密钥后，所有会话文件在离开容器前均由 OpenSSL 进行 `AES-256-CBC PBKDF2` (100k 迭代 + Salt) 加密，杜绝代码与对话隐私泄露；
+  - 启动阶段自动探测、解密并原子合并还原，未配置密码或密码错误时具备严格的防损坏隔离。
+- **生命周期无感守护**：
+  - 启动时自动拉取历史会话并秒级还原 WebUI 对话流与索引；
+  - 运行时后台守护（默认 5 分钟）增量检测变更自动推送，进程退出 / Action 取消时通过 `trap` 钩子执行最终刷盘。
+
 ---
 
 ## 🚀 快速启动指南
@@ -99,6 +110,15 @@ graph TD
 | Secret 变量名 | 必填 | 说明 |
 | :--- | :---: | :--- |
 | `ANTIGRAVITY_REFRESH_TOKEN` | 是 | Google Cloud Code OAuth 2.0 Refresh Token（`1//...`） |
+| `DSH_SYNC_SECRET` | 选填 | **会话同步端到端加密密钥**（配置即对 Git / R2 会话备份启用 AES-256 加密保护） |
+| `R2_ACCOUNT_ID` | 选填 | Cloudflare Account ID（配置即自动启用 Cloudflare R2 对象存储会话同步） |
+| `R2_ACCESS_KEY_ID` | 选填 | Cloudflare R2 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | 选填 | Cloudflare R2 Secret Access Key |
+| `R2_BUCKET` | 选填 | Cloudflare R2 存储桶名称（默认为 `dsh-sessions`） |
+| `S3_ENDPOINT` | 选填 | 通用 S3 兼容对象存储 Endpoint（如 MinIO、阿里云 OSS、腾讯云 COS 等） |
+| `S3_ACCESS_KEY_ID` | 选填 | 通用 S3 Access Key ID |
+| `S3_SECRET_ACCESS_KEY` | 选填 | 通用 S3 Secret Access Key |
+| `S3_BUCKET` | 选填 | 通用 S3 存储桶名称（默认为 `dsh-sessions`） |
 | `CF_WORKER_URL` | 选填 | Cloudflare Worker 反向代理入口 URL（如 `https://dsh.yourdomain.workers.dev`） |
 | `CF_WORKER_TOKEN` | 选填 | 用于向 Cloudflare Worker 更新隧道地址的 API 访问令牌 |
 | `EASYTIER_NETWORK_NAME` | 选填 | EasyTier 异地组网的虚拟网络名称（填写即可自动启用 EasyTier 接入） |
