@@ -3,11 +3,92 @@
 // Serves generated images via HTTP route /api/images/ so DSH's MarkdownText renderer displays <img> tags directly.
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+
+// ---------------------------------------------------------------------------
+// Proxy Support (HTTP / HTTPS / SOCKS5)
+// ---------------------------------------------------------------------------
+let _undici = null
+function getUndici() {
+  if (_undici) return _undici
+  try {
+    const req = createRequire(import.meta.url)
+    _undici = req('undici')
+    if (_undici?.ProxyAgent) return _undici
+  } catch {}
+  const candidates = [
+    'undici',
+    path.join(process.env.APPDATA || '', 'npm/node_modules/@deepseek-ai/dsh/node_modules/undici'),
+    path.join(process.env.HOME || process.env.USERPROFILE || '', '.dsh/profiles/web/node_modules/undici'),
+  ]
+  for (const c of candidates) {
+    try {
+      const req = createRequire(import.meta.url)
+      _undici = req(c)
+      if (_undici?.ProxyAgent) return _undici
+    } catch {}
+  }
+  return null
+}
+
+function resolveActiveProxy() {
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE
+    const p = homeDir ? path.join(homeDir, '.dsh', 'antigravity_accounts.json') : path.join(process.cwd(), 'antigravity_accounts.json')
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'))
+      const active = data.accounts?.find((a) => a.id === data.activeAccountId)
+      return active?.proxy || null
+    }
+  } catch {}
+  return null
+}
+
+function normalizeProxyUrl(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  let trimmed = raw.trim()
+  if (!trimmed) return null
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    trimmed = 'http://' + trimmed
+  }
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol === 'socks5h:' || u.protocol === 'socks:') {
+      trimmed = 'socks5:' + trimmed.slice(u.protocol.length)
+    }
+    return trimmed
+  } catch {
+    return null
+  }
+}
+
+const proxyAgentCache = new Map()
+function getDispatcher(proxyUrl) {
+  const norm = normalizeProxyUrl(proxyUrl)
+  if (!norm) return null
+  let agent = proxyAgentCache.get(norm)
+  if (!agent) {
+    const undici = getUndici()
+    if (!undici?.ProxyAgent) return null
+    agent = new undici.ProxyAgent(norm)
+    proxyAgentCache.set(norm, agent)
+  }
+  return agent
+}
+
+async function antigravityFetch(url, options = {}, proxyUrl = null) {
+  const dispatcher = getDispatcher(proxyUrl)
+  if (dispatcher) {
+    const undici = getUndici()
+    return undici.fetch(url, { ...options, dispatcher })
+  }
+  return fetch(url, options)
+}
 
 const name = 'image-gen-antigravity'
 const inject = ['tools', 'systemPrompt']
@@ -63,7 +144,8 @@ async function resolveAccessToken(ctx, refreshTokenEnv) {
     return cached.accessToken
   }
 
-  const tokenRes = await fetch(TOKEN_URL, {
+  const proxy = resolveActiveProxy()
+  const tokenRes = await antigravityFetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...attributionHeaders() },
     body: new URLSearchParams({
@@ -72,7 +154,7 @@ async function resolveAccessToken(ctx, refreshTokenEnv) {
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
-  })
+  }, proxy)
 
   const tokenJson = await tokenRes.json()
   if (!tokenJson.access_token) {
@@ -94,7 +176,8 @@ async function resolveProject(accessToken, baseURL) {
 
   let project = 'default'
   try {
-    const lcaRes = await fetch(`${baseURL}:loadCodeAssist`, {
+    const proxy = resolveActiveProxy()
+    const lcaRes = await antigravityFetch(`${baseURL}:loadCodeAssist`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -104,7 +187,7 @@ async function resolveProject(accessToken, baseURL) {
       body: JSON.stringify({
         metadata: { ideType: 'VSCODE', ideVersion: '1.90.0', pluginVersion: '4.3.0' },
       }),
-    })
+    }, proxy)
     const lcaJson = await lcaRes.json()
     project = lcaJson.cloudaicompanionProject ?? lcaJson.currentTier?.cloudaicompanionProject ?? 'default'
   } catch {}
@@ -115,7 +198,8 @@ async function resolveProject(accessToken, baseURL) {
 
 async function executeImageGenWithRetry(baseURL, accessToken, reqBody, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const genRes = await fetch(`${baseURL}:generateContent`, {
+    const proxy = resolveActiveProxy()
+    const genRes = await antigravityFetch(`${baseURL}:generateContent`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -123,7 +207,7 @@ async function executeImageGenWithRetry(baseURL, accessToken, reqBody, maxRetrie
         'User-Agent': 'antigravity/hub/2.8.1 (aidev_client; os_type=windows; arch=amd64; cl=963761360)',
       },
       body: JSON.stringify(reqBody),
-    })
+    }, proxy)
 
     const genJson = await genRes.json()
     if (genJson.error) {

@@ -78,6 +78,7 @@
 					const subs = new Set();
 					return {
 						get: () => s,
+						getSnapshot: () => s,
 						set: (n) => { s = n; subs.forEach((cb) => cb()); },
 						subscribe: (cb) => { subs.add(cb); return () => subs.delete(cb); }
 					};
@@ -350,9 +351,8 @@
 		}
 
 		class CloudflareTunnelController {
-			constructor(scope, api) {
+			constructor(scope) {
 				this.scope = scope;
-				this.api = api;
 				this.draft = {};
 				this.saving = false;
 				this.store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(this.projection());
@@ -403,7 +403,7 @@
 						]);
 					}
 				} catch (e) {
-					console.error(e);
+					console.error("cloudflare-tunnel: reset failed", e);
 				}
 				this.store.set(this.projection());
 			}
@@ -422,7 +422,7 @@
 					}
 					this.draft = {};
 				} catch (e) {
-					console.error(e);
+					console.error("cloudflare-tunnel: save failed", e);
 				} finally {
 					this.saving = false;
 					this.store.set(this.projection());
@@ -444,18 +444,15 @@
 		const inject = [
 			"slots",
 			"locale",
-			"connection",
 			"settingsScope"
 		];
 
 		function apply(ctx) {
-			const { api } = ctx.get("connection");
 			const t = ctx.locale.bind(NS);
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "cloudflare-tunnel: locales");
 
 			const controller = new CloudflareTunnelController(
-				ctx.settingsScope.bind({ namespace: NS }),
-				api
+				ctx.settingsScope.bind({ namespace: NS })
 			);
 
 			ctx.slots.inject("settings.plugin.item", function* () {

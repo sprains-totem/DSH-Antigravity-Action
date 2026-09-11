@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+import { DatabaseSync } from 'node:sqlite'
 import z from '@deepseek-ai/schemastery'
 import * as dshLlm from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -66,6 +68,90 @@ const VSCODE_SESSION_ID = `antigravity-${randomHex(8)}`
 // `antigravity` UA returns 404 NOT_FOUND for them while
 // `vscode/1.X.X (Antigravity/<version>)` succeeds (constants.rs NATIVE_OAUTH_USER_AGENT).
 const OFFICIAL_USER_AGENT = 'vscode/1.X.X (Antigravity/4.3.0)'
+
+// ---------------------------------------------------------------------------
+// Proxy Support (HTTP / HTTPS / SOCKS5 with or without auth)
+// ---------------------------------------------------------------------------
+let _undici = null
+function getUndici() {
+  if (_undici) return _undici
+  try {
+    const req = createRequire(import.meta.url)
+    _undici = req('undici')
+    if (_undici?.ProxyAgent) return _undici
+  } catch {}
+  const candidates = [
+    'undici',
+    path.join(process.env.APPDATA || '', 'npm/node_modules/@deepseek-ai/dsh/node_modules/undici'),
+    path.join(process.env.HOME || process.env.USERPROFILE || '', '.dsh/profiles/web/node_modules/undici'),
+  ]
+  for (const c of candidates) {
+    try {
+      const req = createRequire(import.meta.url)
+      _undici = req(c)
+      if (_undici?.ProxyAgent) return _undici
+    } catch {}
+  }
+  return null
+}
+
+function normalizeProxyUrl(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  let trimmed = raw.trim()
+  if (!trimmed) return null
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    trimmed = 'http://' + trimmed
+  }
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol === 'socks5h:' || u.protocol === 'socks:') {
+      trimmed = 'socks5:' + trimmed.slice(u.protocol.length)
+    }
+    return trimmed
+  } catch {
+    return null
+  }
+}
+
+function maskProxy(proxy) {
+  if (!proxy || typeof proxy !== 'string') return ''
+  try {
+    const u = new URL(proxy)
+    if (u.password) {
+      u.password = '******'
+      return u.toString()
+    }
+    return proxy
+  } catch {
+    return proxy
+  }
+}
+
+const proxyAgentCache = new Map()
+
+function getDispatcher(proxyUrl) {
+  const norm = normalizeProxyUrl(proxyUrl)
+  if (!norm) return null
+  let agent = proxyAgentCache.get(norm)
+  if (!agent) {
+    const undici = getUndici()
+    if (!undici || !undici.ProxyAgent) {
+      throw new Error('当前运行环境未找到 undici.ProxyAgent，无法初始化代理客户端')
+    }
+    agent = new undici.ProxyAgent(norm)
+    proxyAgentCache.set(norm, agent)
+  }
+  return agent
+}
+
+async function antigravityFetch(url, options = {}, proxyUrl = null) {
+  const dispatcher = getDispatcher(proxyUrl)
+  if (dispatcher) {
+    const undici = getUndici()
+    return undici.fetch(url, { ...options, dispatcher })
+  }
+  return fetch(url, options)
+}
 
 // ---------------------------------------------------------------------------
 // Catalog (advisory). Model ids are the ones the account advertises through
@@ -144,6 +230,18 @@ function getUsageFilePath() {
   return path.join(process.cwd(), 'antigravity_usage.json')
 }
 
+function getUsageDbPath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE
+  if (homeDir) {
+    const dshPath = path.join(homeDir, '.dsh', 'antigravity_usage.db')
+    const cwdPath = path.join(process.cwd(), 'antigravity_usage.db')
+    if (fs.existsSync(dshPath)) return dshPath
+    if (fs.existsSync(cwdPath)) return cwdPath
+    return dshPath
+  }
+  return path.join(process.cwd(), 'antigravity_usage.db')
+}
+
 // ---------------------------------------------------------------------------
 // Multi-Account Management & Persistence
 // ---------------------------------------------------------------------------
@@ -166,7 +264,9 @@ function maskToken(token) {
   return trimmed.slice(0, 6) + '...' + trimmed.slice(-4)
 }
 
-async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clientSecret = CLIENT_SECRET) {
+async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clientSecret = CLIENT_SECRET, proxy = null) {
+  const normProxy = normalizeProxyUrl(proxy)
+  const proxyLabel = normProxy ? ` [代理: ${maskProxy(normProxy)}]` : ''
   const params = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -175,28 +275,28 @@ async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clie
   })
   let res
   try {
-    res = await fetch(TOKEN_URL, {
+    res = await antigravityFetch(TOKEN_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', ...attributionHeaders() },
       body: params.toString(),
-    })
+    }, normProxy)
   } catch (err) {
-    throw new Error(`Google OAuth 连接失败: ${err.message || String(err)}`)
+    throw new Error(`Google OAuth 连接失败${proxyLabel}: ${err.message || String(err)}`)
   }
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`Google OAuth 验证失败 (HTTP ${res.status}): ${body.slice(0, 180)}`)
+    throw new Error(`Google OAuth 验证失败${proxyLabel} (HTTP ${res.status}): ${body.slice(0, 180)}`)
   }
   const data = await res.json()
   const accessToken = data.access_token
-  if (!accessToken) throw new Error('Google OAuth 未返回有效 access_token')
+  if (!accessToken) throw new Error(`Google OAuth 未返回有效 access_token${proxyLabel}`)
 
   let email = ''
   let tier = 'Google AI Pro'
   let project = 'default'
 
   try {
-    const lcaRes = await fetch(LOAD_CODE_ASSIST_URL, {
+    const lcaRes = await antigravityFetch(LOAD_CODE_ASSIST_URL, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${accessToken}`,
@@ -205,7 +305,7 @@ async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clie
         'user-agent': OFFICIAL_USER_AGENT,
       },
       body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
-    })
+    }, normProxy)
     if (lcaRes.ok) {
       const lca = await lcaRes.json()
       if (lca.cloudaicompanionProject) project = lca.cloudaicompanionProject
@@ -225,9 +325,9 @@ async function validateAndFetchMetadata(refreshToken, clientId = CLIENT_ID, clie
 
   if (!email) {
     try {
-      const uinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      const uinfoRes = await antigravityFetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { authorization: `Bearer ${accessToken}` }
-      })
+      }, normProxy)
       if (uinfoRes.ok) {
         const uinfo = await uinfoRes.json()
         if (uinfo.email) email = uinfo.email
@@ -306,6 +406,7 @@ class AccountsManager {
       tier,
       project,
       refreshToken: token,
+      proxy: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -364,6 +465,9 @@ class AccountsManager {
       active: acc.id === this.data.activeAccountId,
       tokenMasked: maskToken(acc.refreshToken),
       hasToken: Boolean(acc.refreshToken && acc.refreshToken.length > 0),
+      proxy: acc.proxy || '',
+      proxyMasked: maskProxy(acc.proxy),
+      hasProxy: Boolean(acc.proxy && acc.proxy.trim().length > 0),
       createdAt: acc.createdAt,
       updatedAt: acc.updatedAt,
     }))
@@ -389,13 +493,14 @@ class AccountsManager {
     return acc
   }
 
-  async addAccount({ name, refreshToken, setActive = false }) {
+  async addAccount({ name, refreshToken, proxy, setActive = false }) {
     this.reload()
     if (!refreshToken || typeof refreshToken !== 'string' || refreshToken.trim().length === 0) {
       throw new Error('Refresh Token 不能为空')
     }
     const token = refreshToken.trim()
-    const meta = await validateAndFetchMetadata(token)
+    const normProxy = normalizeProxyUrl(proxy) || ''
+    const meta = await validateAndFetchMetadata(token, CLIENT_ID, CLIENT_SECRET, normProxy)
     const id = 'acc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
     const acc = {
       id,
@@ -404,6 +509,7 @@ class AccountsManager {
       tier: meta.tier || 'Google AI Pro',
       project: meta.project || 'aicode-consumers',
       refreshToken: token,
+      proxy: normProxy,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -418,18 +524,30 @@ class AccountsManager {
     return acc
   }
 
-  async updateAccount(id, { name, refreshToken }) {
+  async updateAccount(id, { name, refreshToken, proxy }) {
     this.reload()
     const acc = this.data.accounts.find((a) => a.id === id)
     if (!acc) throw new Error(`找不到指定的账号: ${id}`)
-    if (name && typeof name === 'string' && name.trim().length > 0) {
+    if (name !== undefined && typeof name === 'string' && name.trim().length > 0) {
       acc.name = name.trim()
     }
+    let targetProxy = acc.proxy || ''
+    let proxyChanged = false
+    if (proxy !== undefined) {
+      const norm = normalizeProxyUrl(proxy) || ''
+      if (norm !== (acc.proxy || '')) {
+        targetProxy = norm
+        acc.proxy = targetProxy
+        proxyChanged = true
+      }
+    }
+    let tokenChanged = false
     if (refreshToken && typeof refreshToken === 'string' && refreshToken.trim().length > 0) {
       const token = refreshToken.trim()
       if (token !== acc.refreshToken) {
-        const meta = await validateAndFetchMetadata(token)
+        const meta = await validateAndFetchMetadata(token, CLIENT_ID, CLIENT_SECRET, targetProxy)
         acc.refreshToken = token
+        tokenChanged = true
         if (meta.email) acc.email = meta.email
         if (meta.tier) acc.tier = meta.tier
         if (meta.project) acc.project = meta.project
@@ -437,7 +555,7 @@ class AccountsManager {
     }
     acc.updatedAt = Date.now()
     this.save()
-    if (acc.id === this.data.activeAccountId && this.onActiveAccountChange) {
+    if (acc.id === this.data.activeAccountId && (proxyChanged || tokenChanged) && this.onActiveAccountChange) {
       await this.onActiveAccountChange(acc)
     }
     return acc
@@ -467,67 +585,330 @@ class AccountsManager {
   }
 }
 
+function mapRecordRow(r) {
+  return {
+    timestamp: r.timestamp,
+    model: r.model,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
+    cacheReadTokens: r.cache_read_tokens,
+    reasoningTokens: r.reasoning_tokens,
+    totalTokens: r.total_tokens,
+    cacheSavingsRatio: r.cache_savings_ratio,
+    durationMs: r.duration_ms,
+    sessionId: r.session_id || undefined,
+    accountId: r.account_id || undefined,
+    accountName: r.account_name || undefined,
+    accountEmail: r.account_email || undefined,
+  }
+}
+
 class UsageTracker {
   constructor() {
-    this.stats = this.load()
-    this.saveTimer = null
+    this.db = null
+    this.initDatabase()
+    this.migrateFromJsonIfNeeded()
   }
 
-  load() {
-    const filePath = getUsageFilePath()
+  initDatabase() {
+    const dbPath = getUsageDbPath()
+    const dir = path.dirname(dbPath)
+    fs.mkdirSync(dir, { recursive: true })
+    this.db = new DatabaseSync(dbPath)
+
+    this.db.exec('PRAGMA journal_mode = WAL;')
+    this.db.exec('PRAGMA synchronous = NORMAL;')
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        timestamp_ms INTEGER NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_savings_ratio REAL NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        session_id TEXT,
+        account_id TEXT,
+        account_name TEXT,
+        account_email TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_records_time ON usage_records(timestamp_ms);
+      CREATE INDEX IF NOT EXISTS idx_records_acc_time ON usage_records(account_id, timestamp_ms);
+      CREATE INDEX IF NOT EXISTS idx_records_model ON usage_records(model);
+
+      CREATE TABLE IF NOT EXISTS usage_lifetime_summary (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        total_requests INTEGER NOT NULL DEFAULT 0,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        first_used TEXT,
+        last_used TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_lifetime_by_model (
+        model TEXT PRIMARY KEY,
+        requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_lifetime_by_account (
+        account_id TEXT PRIMARY KEY,
+        name TEXT,
+        email TEXT,
+        requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        by_model_json TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_daily_summary (
+        day TEXT PRIMARY KEY,
+        requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `)
+
+    const summaryRow = this.db.prepare('SELECT id FROM usage_lifetime_summary WHERE id = 1').get()
+    if (!summaryRow) {
+      this.db.prepare(`
+        INSERT INTO usage_lifetime_summary (id, total_requests, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_reasoning_tokens, first_used, last_used)
+        VALUES (1, 0, 0, 0, 0, 0, NULL, NULL)
+      `).run()
+    }
+
+    this.stmtInsertRecord = this.db.prepare(`
+      INSERT INTO usage_records (
+        timestamp, timestamp_ms, model, input_tokens, output_tokens,
+        cache_read_tokens, reasoning_tokens, total_tokens, cache_savings_ratio,
+        duration_ms, session_id, account_id, account_name, account_email
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    this.stmtUpdateLifetimeSummary = this.db.prepare(`
+      UPDATE usage_lifetime_summary SET
+        total_requests = total_requests + 1,
+        total_input_tokens = total_input_tokens + ?,
+        total_output_tokens = total_output_tokens + ?,
+        total_cache_read_tokens = total_cache_read_tokens + ?,
+        total_reasoning_tokens = total_reasoning_tokens + ?,
+        first_used = COALESCE(first_used, ?),
+        last_used = ?
+      WHERE id = 1
+    `)
+
+    this.stmtUpsertModel = this.db.prepare(`
+      INSERT INTO usage_lifetime_by_model (model, requests, input_tokens, output_tokens, cache_read_tokens, reasoning_tokens, total_tokens)
+      VALUES (?, 1, ?, ?, ?, ?, ?)
+      ON CONFLICT(model) DO UPDATE SET
+        requests = requests + 1,
+        input_tokens = input_tokens + excluded.input_tokens,
+        output_tokens = output_tokens + excluded.output_tokens,
+        cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+        reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+        total_tokens = total_tokens + excluded.total_tokens
+    `)
+
+    this.stmtUpsertDaily = this.db.prepare(`
+      INSERT INTO usage_daily_summary (day, requests, input_tokens, output_tokens, cache_read_tokens, reasoning_tokens, total_tokens)
+      VALUES (?, 1, ?, ?, ?, ?, ?)
+      ON CONFLICT(day) DO UPDATE SET
+        requests = requests + 1,
+        input_tokens = input_tokens + excluded.input_tokens,
+        output_tokens = output_tokens + excluded.output_tokens,
+        cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+        reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+        total_tokens = total_tokens + excluded.total_tokens
+    `)
+
+    this.stmtGetAccount = this.db.prepare(`
+      SELECT * FROM usage_lifetime_by_account WHERE account_id = ?
+    `)
+
+    this.stmtUpsertAccount = this.db.prepare(`
+      INSERT INTO usage_lifetime_by_account (account_id, name, email, requests, input_tokens, output_tokens, cache_read_tokens, reasoning_tokens, total_tokens, by_model_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET
+        name = excluded.name,
+        email = excluded.email,
+        requests = excluded.requests,
+        input_tokens = excluded.input_tokens,
+        output_tokens = excluded.output_tokens,
+        cache_read_tokens = excluded.cache_read_tokens,
+        reasoning_tokens = excluded.reasoning_tokens,
+        total_tokens = excluded.total_tokens,
+        by_model_json = excluded.by_model_json
+    `)
+  }
+
+  migrateFromJsonIfNeeded() {
+    const metaRow = this.db.prepare("SELECT value FROM usage_meta WHERE key = 'migrated_from_json'").get()
+    if (metaRow && metaRow.value === '1') {
+      return
+    }
+
+    const jsonPath = getUsageFilePath()
+    if (!fs.existsSync(jsonPath)) {
+      this.db.prepare("INSERT OR REPLACE INTO usage_meta (key, value) VALUES ('migrated_from_json', '1')").run()
+      return
+    }
+
     try {
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf8')
-        const data = JSON.parse(raw)
-        const recent = Array.isArray(data.recent) ? data.recent : []
-        const history = Array.isArray(data.history) && data.history.length > 0 ? data.history : [...recent]
-        return {
-          summary: {
-            totalRequests: data.summary?.totalRequests || 0,
-            totalInputTokens: data.summary?.totalInputTokens || 0,
-            totalOutputTokens: data.summary?.totalOutputTokens || 0,
-            totalCacheReadTokens: data.summary?.totalCacheReadTokens || 0,
-            totalReasoningTokens: data.summary?.totalReasoningTokens || 0,
-            firstUsed: data.summary?.firstUsed || null,
-            lastUsed: data.summary?.lastUsed || null,
-          },
-          byModel: data.byModel || {},
-          byAccount: data.byAccount || {},
-          daily: data.daily || {},
-          recent,
-          history,
+      const raw = fs.readFileSync(jsonPath, 'utf8')
+      const data = JSON.parse(raw)
+      console.log(`[antigravity] Migrating usage data from ${jsonPath} to SQLite...`)
+
+      this.db.exec('BEGIN TRANSACTION;')
+
+      if (data.summary) {
+        this.db.prepare(`
+          INSERT OR REPLACE INTO usage_lifetime_summary (
+            id, total_requests, total_input_tokens, total_output_tokens,
+            total_cache_read_tokens, total_reasoning_tokens, first_used, last_used
+          ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          data.summary.totalRequests || 0,
+          data.summary.totalInputTokens || 0,
+          data.summary.totalOutputTokens || 0,
+          data.summary.totalCacheReadTokens || 0,
+          data.summary.totalReasoningTokens || 0,
+          data.summary.firstUsed || null,
+          data.summary.lastUsed || null
+        )
+      }
+
+      if (data.byModel && typeof data.byModel === 'object') {
+        const stmtModel = this.db.prepare(`
+          INSERT OR REPLACE INTO usage_lifetime_by_model (
+            model, requests, input_tokens, output_tokens, cache_read_tokens, reasoning_tokens, total_tokens
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const [model, m] of Object.entries(data.byModel)) {
+          stmtModel.run(
+            model,
+            m.requests || 0,
+            m.inputTokens || 0,
+            m.outputTokens || 0,
+            m.cacheReadTokens || 0,
+            m.reasoningTokens || 0,
+            m.totalTokens || 0
+          )
         }
       }
-    } catch {}
-    return {
-      summary: {
-        totalRequests: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCacheReadTokens: 0,
-        totalReasoningTokens: 0,
-        firstUsed: null,
-        lastUsed: null,
-      },
-      byModel: {},
-      byAccount: {},
-      daily: {},
-      recent: [],
-      history: [],
-    }
-  }
 
-  scheduleSave() {
-    if (this.saveTimer) return
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null
+      if (data.byAccount && typeof data.byAccount === 'object') {
+        const stmtAcc = this.db.prepare(`
+          INSERT OR REPLACE INTO usage_lifetime_by_account (
+            account_id, name, email, requests, input_tokens, output_tokens,
+            cache_read_tokens, reasoning_tokens, total_tokens, by_model_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const [accId, a] of Object.entries(data.byAccount)) {
+          stmtAcc.run(
+            accId,
+            a.name || '',
+            a.email || '',
+            a.requests || 0,
+            a.inputTokens || 0,
+            a.outputTokens || 0,
+            a.cacheReadTokens || 0,
+            a.reasoningTokens || 0,
+            a.totalTokens || 0,
+            JSON.stringify(a.byModel || {})
+          )
+        }
+      }
+
+      if (data.daily && typeof data.daily === 'object') {
+        const stmtDaily = this.db.prepare(`
+          INSERT OR REPLACE INTO usage_daily_summary (
+            day, requests, input_tokens, output_tokens, cache_read_tokens, reasoning_tokens, total_tokens
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const [day, d] of Object.entries(data.daily)) {
+          stmtDaily.run(
+            day,
+            d.requests || 0,
+            d.inputTokens || 0,
+            d.outputTokens || 0,
+            d.cacheReadTokens || 0,
+            d.reasoningTokens || 0,
+            d.totalTokens || 0
+          )
+        }
+      }
+
+      const recordsToImport = Array.isArray(data.history) && data.history.length > 0
+        ? data.history
+        : (Array.isArray(data.recent) ? data.recent : [])
+
+      const stmtRecord = this.db.prepare(`
+        INSERT INTO usage_records (
+          timestamp, timestamp_ms, model, input_tokens, output_tokens,
+          cache_read_tokens, reasoning_tokens, total_tokens, cache_savings_ratio,
+          duration_ms, session_id, account_id, account_name, account_email
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const r of recordsToImport) {
+        const ts = r.timestamp || new Date().toISOString()
+        const tMs = new Date(ts).getTime() || Date.now()
+        stmtRecord.run(
+          ts,
+          tMs,
+          r.model || 'unknown',
+          r.inputTokens || 0,
+          r.outputTokens || 0,
+          r.cacheReadTokens || 0,
+          r.reasoningTokens || 0,
+          r.totalTokens || 0,
+          r.cacheSavingsRatio || 0,
+          r.durationMs || 0,
+          r.sessionId || null,
+          r.accountId || null,
+          r.accountName || null,
+          r.accountEmail || null
+        )
+      }
+
+      this.db.prepare("INSERT OR REPLACE INTO usage_meta (key, value) VALUES ('migrated_from_json', '1')").run()
+      this.db.exec('COMMIT;')
+      console.log(`[antigravity] Migration to SQLite completed successfully (${recordsToImport.length} records imported).`)
+
       try {
-        const filePath = getUsageFilePath()
-        const dir = path.dirname(filePath)
-        fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(filePath, JSON.stringify(this.stats, null, 2), 'utf8')
-      } catch {}
-    }, 500)
+        const bakPath = jsonPath + '.bak'
+        fs.renameSync(jsonPath, bakPath)
+        console.log(`[antigravity] Backed up ${jsonPath} to ${bakPath}`)
+      } catch (e) {
+        console.warn(`[antigravity] Failed to rename JSON file after migration:`, e)
+      }
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;') } catch {}
+      console.error('[antigravity] Failed to migrate usage data from JSON to SQLite:', err)
+    }
   }
 
   record(item) {
@@ -548,136 +929,124 @@ class UsageTracker {
     const totalTokens = inputTokens + outputTokens + reasoningTokens
     const promptGross = inputTokens + cacheReadTokens
     const cacheSavingsRatio = promptGross > 0 ? Math.round((cacheReadTokens / promptGross) * 1000) / 10 : 0
-
-    // Summary
-    this.stats.summary.totalRequests++
-    this.stats.summary.totalInputTokens += inputTokens
-    this.stats.summary.totalOutputTokens += outputTokens
-    this.stats.summary.totalCacheReadTokens += cacheReadTokens
-    this.stats.summary.totalReasoningTokens += reasoningTokens
-    if (!this.stats.summary.firstUsed) this.stats.summary.firstUsed = timestamp
-    this.stats.summary.lastUsed = timestamp
-
-    // By Model
-    if (!this.stats.byModel[model]) {
-      this.stats.byModel[model] = {
-        requests: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        reasoningTokens: 0,
-        totalTokens: 0,
-      }
-    }
-    const m = this.stats.byModel[model]
-    m.requests++
-    m.inputTokens += inputTokens
-    m.outputTokens += outputTokens
-    m.cacheReadTokens += cacheReadTokens
-    m.reasoningTokens += reasoningTokens
-    m.totalTokens += totalTokens
-
-    // By Account
-    if (!this.stats.byAccount) this.stats.byAccount = {}
-    const accKey = accountId || 'legacy'
-    if (!this.stats.byAccount[accKey]) {
-      this.stats.byAccount[accKey] = {
-        accountId: accountId || '',
-        name: accountName || (accountId ? '已配置账号' : '历史/未分配账号'),
-        email: accountEmail || '',
-        requests: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        reasoningTokens: 0,
-        totalTokens: 0,
-        byModel: {},
-      }
-    }
-    const accStat = this.stats.byAccount[accKey]
-    accStat.requests++
-    accStat.inputTokens += inputTokens
-    accStat.outputTokens += outputTokens
-    accStat.cacheReadTokens += cacheReadTokens
-    accStat.reasoningTokens += reasoningTokens
-    accStat.totalTokens += totalTokens
-    if (accountName) accStat.name = accountName
-    if (accountEmail) accStat.email = accountEmail
-    if (!accStat.byModel[model]) {
-      accStat.byModel[model] = {
-        requests: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        reasoningTokens: 0,
-        totalTokens: 0,
-      }
-    }
-    const accModel = accStat.byModel[model]
-    accModel.requests++
-    accModel.inputTokens += inputTokens
-    accModel.outputTokens += outputTokens
-    accModel.cacheReadTokens += cacheReadTokens
-    accModel.reasoningTokens += reasoningTokens
-    accModel.totalTokens += totalTokens
-
-    // Daily
+    const timestampMs = new Date(timestamp).getTime() || Date.now()
     const day = timestamp.slice(0, 10)
-    if (!this.stats.daily[day]) {
-      this.stats.daily[day] = {
-        requests: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        reasoningTokens: 0,
-        totalTokens: 0,
+    const accKey = accountId || 'legacy'
+
+    try {
+      this.db.exec('BEGIN TRANSACTION;')
+
+      this.stmtInsertRecord.run(
+        timestamp,
+        timestampMs,
+        model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        reasoningTokens,
+        totalTokens,
+        cacheSavingsRatio,
+        durationMs,
+        sessionId ? String(sessionId) : null,
+        accountId || null,
+        accountName || null,
+        accountEmail || null
+      )
+
+      this.stmtUpdateLifetimeSummary.run(
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        reasoningTokens,
+        timestamp,
+        timestamp
+      )
+
+      this.stmtUpsertModel.run(
+        model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        reasoningTokens,
+        totalTokens
+      )
+
+      this.stmtUpsertDaily.run(
+        day,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        reasoningTokens,
+        totalTokens
+      )
+
+      const accRow = this.stmtGetAccount.get(accKey)
+      let accObj
+      if (accRow) {
+        let byModel = {}
+        try { byModel = JSON.parse(accRow.by_model_json || '{}') } catch {}
+        accObj = {
+          accountId: accKey,
+          name: accountName || accRow.name || (accountId ? '已配置账号' : '历史/未分配账号'),
+          email: accountEmail || accRow.email || '',
+          requests: (accRow.requests || 0) + 1,
+          inputTokens: (accRow.input_tokens || 0) + inputTokens,
+          outputTokens: (accRow.output_tokens || 0) + outputTokens,
+          cacheReadTokens: (accRow.cache_read_tokens || 0) + cacheReadTokens,
+          reasoningTokens: (accRow.reasoning_tokens || 0) + reasoningTokens,
+          totalTokens: (accRow.total_tokens || 0) + totalTokens,
+          byModel,
+        }
+      } else {
+        accObj = {
+          accountId: accKey,
+          name: accountName || (accountId ? '已配置账号' : '历史/未分配账号'),
+          email: accountEmail || '',
+          requests: 1,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          reasoningTokens,
+          totalTokens,
+          byModel: {},
+        }
       }
-    }
-    const d = this.stats.daily[day]
-    d.requests++
-    d.inputTokens += inputTokens
-    d.outputTokens += outputTokens
-    d.cacheReadTokens += cacheReadTokens
-    d.reasoningTokens += reasoningTokens
-    d.totalTokens += totalTokens
+      if (!accObj.byModel[model]) {
+        accObj.byModel[model] = {
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        }
+      }
+      const accM = accObj.byModel[model]
+      accM.requests++
+      accM.inputTokens += inputTokens
+      accM.outputTokens += outputTokens
+      accM.cacheReadTokens += cacheReadTokens
+      accM.reasoningTokens += reasoningTokens
+      accM.totalTokens += totalTokens
 
-    const recordEntry = {
-      timestamp,
-      model,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      reasoningTokens,
-      totalTokens,
-      cacheSavingsRatio,
-      durationMs,
-      sessionId: sessionId ? String(sessionId) : undefined,
-      accountId: accountId || undefined,
-      accountName: accountName || undefined,
-      accountEmail: accountEmail || undefined,
-    }
+      this.stmtUpsertAccount.run(
+        accKey,
+        accObj.name,
+        accObj.email,
+        accObj.requests,
+        accObj.inputTokens,
+        accObj.outputTokens,
+        accObj.cacheReadTokens,
+        accObj.reasoningTokens,
+        accObj.totalTokens,
+        JSON.stringify(accObj.byModel)
+      )
 
-    // History (retain 14 days of detailed records, capped at 20,000)
-    if (!Array.isArray(this.stats.history)) {
-      this.stats.history = Array.isArray(this.stats.recent) ? [...this.stats.recent] : []
+      this.db.exec('COMMIT;')
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;') } catch {}
+      console.error('[antigravity] Failed to record usage to SQLite:', err)
     }
-    this.stats.history.unshift(recordEntry)
-    const cutoffMs = Date.now() - (14 * 24 * 3600 * 1000)
-    this.stats.history = this.stats.history.filter((h) => {
-      const t = new Date(h.timestamp).getTime()
-      return !isNaN(t) && t >= cutoffMs
-    })
-    if (this.stats.history.length > 20000) {
-      this.stats.history = this.stats.history.slice(0, 20000)
-    }
-
-    // Recent list (keep latest 50 for quick display)
-    this.stats.recent.unshift(recordEntry)
-    if (this.stats.recent.length > 50) {
-      this.stats.recent = this.stats.recent.slice(0, 50)
-    }
-
-    this.scheduleSave()
   }
 
   aggregateWindow(startTimeMs, endTimeMs, filterAccountId) {
@@ -689,71 +1058,104 @@ class UsageTracker {
     let totalCacheReadTokens = 0
     let totalReasoningTokens = 0
 
-    const list = this.stats.history && this.stats.history.length > 0
-      ? this.stats.history
-      : (this.stats.recent || [])
+    const querySql = `
+      SELECT
+        model,
+        account_id,
+        account_name,
+        account_email,
+        COUNT(*) as requests,
+        SUM(input_tokens) as in_tokens,
+        SUM(output_tokens) as out_tokens,
+        SUM(cache_read_tokens) as cache_tokens,
+        SUM(reasoning_tokens) as r_tokens
+      FROM usage_records
+      WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+      GROUP BY account_id, model
+    `
+    const rows = this.db.prepare(querySql).all(startTimeMs, endTimeMs)
 
-    for (const item of list) {
-      const t = new Date(item.timestamp).getTime()
-      if (isNaN(t)) continue
-      if (t >= startTimeMs && t <= endTimeMs) {
-        const itemAcc = item.accountId || 'legacy'
-        const accName = item.accountName || (item.accountId ? '已配置账号' : '历史/未分配账号')
-        const accEmail = item.accountEmail || ''
+    for (const row of rows) {
+      const itemAcc = row.account_id || 'legacy'
+      const accName = row.account_name || (row.account_id ? '已配置账号' : '历史/未分配账号')
+      const accEmail = row.account_email || ''
+      const reqs = Number(row.requests) || 0
+      const inTok = Number(row.in_tokens) || 0
+      const outTok = Number(row.out_tokens) || 0
+      const cacheTok = Number(row.cache_tokens) || 0
+      const rTok = Number(row.r_tokens) || 0
+      const totTok = inTok + outTok + rTok
+      const model = row.model || 'unknown'
 
-        // Always aggregate by account within this window
-        if (!byAccount[itemAcc]) {
-          byAccount[itemAcc] = {
-            accountId: item.accountId || '',
-            name: accName,
-            email: accEmail,
-            requests: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            reasoningTokens: 0,
-            totalTokens: 0,
-            byModel: {},
-          }
+      if (!byAccount[itemAcc]) {
+        byAccount[itemAcc] = {
+          accountId: row.account_id || '',
+          name: accName,
+          email: accEmail,
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+          byModel: {},
         }
-        const acc = byAccount[itemAcc]
-        acc.requests++
-        acc.inputTokens += (item.inputTokens || 0)
-        acc.outputTokens += (item.outputTokens || 0)
-        acc.cacheReadTokens += (item.cacheReadTokens || 0)
-        acc.reasoningTokens += (item.reasoningTokens || 0)
-        acc.totalTokens += ((item.inputTokens || 0) + (item.outputTokens || 0) + (item.reasoningTokens || 0))
-
-        // If filterAccountId is given and does not match, skip top-level byModel/summary
-        if (filterAccountId && filterAccountId !== 'all' && item.accountId !== filterAccountId) {
-          continue
-        }
-
-        const model = item.model || 'unknown'
-        if (!byModel[model]) {
-          byModel[model] = {
-            requests: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            reasoningTokens: 0,
-            totalTokens: 0,
-          }
-        }
-        const m = byModel[model]
-        m.requests++
-        m.inputTokens += (item.inputTokens || 0)
-        m.outputTokens += (item.outputTokens || 0)
-        m.cacheReadTokens += (item.cacheReadTokens || 0)
-        m.reasoningTokens += (item.reasoningTokens || 0)
-        m.totalTokens += ((item.inputTokens || 0) + (item.outputTokens || 0) + (item.reasoningTokens || 0))
-
-        totalRequests++
-        totalInputTokens += (item.inputTokens || 0)
-        totalOutputTokens += (item.outputTokens || 0)
-        totalCacheReadTokens += (item.cacheReadTokens || 0)
-        totalReasoningTokens += (item.reasoningTokens || 0)
       }
+      const acc = byAccount[itemAcc]
+      acc.requests += reqs
+      acc.inputTokens += inTok
+      acc.outputTokens += outTok
+      acc.cacheReadTokens += cacheTok
+      acc.reasoningTokens += rTok
+      acc.totalTokens += totTok
+      if (!acc.byModel[model]) {
+        acc.byModel[model] = {
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        }
+      }
+      const accM = acc.byModel[model]
+      accM.requests += reqs
+      accM.inputTokens += inTok
+      accM.outputTokens += outTok
+      accM.cacheReadTokens += cacheTok
+      accM.reasoningTokens += rTok
+      accM.totalTokens += totTok
+
+      if (filterAccountId && filterAccountId !== 'all') {
+        const matches = (filterAccountId === 'legacy')
+          ? (!row.account_id || row.account_id === 'legacy')
+          : (row.account_id === filterAccountId)
+        if (!matches) continue
+      }
+
+      if (!byModel[model]) {
+        byModel[model] = {
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        }
+      }
+      const m = byModel[model]
+      m.requests += reqs
+      m.inputTokens += inTok
+      m.outputTokens += outTok
+      m.cacheReadTokens += cacheTok
+      m.reasoningTokens += rTok
+      m.totalTokens += totTok
+
+      totalRequests += reqs
+      totalInputTokens += inTok
+      totalOutputTokens += outTok
+      totalCacheReadTokens += cacheTok
+      totalReasoningTokens += rTok
     }
 
     const grossPrompt = totalInputTokens + totalCacheReadTokens
@@ -781,33 +1183,75 @@ class UsageTracker {
 
   getStats(options = {}) {
     const filterAccountId = options.accountId || null
-    let summary = { ...this.stats.summary }
-    let byModel = this.stats.byModel
+
+    const byAccount = {}
+    const accRows = this.db.prepare('SELECT * FROM usage_lifetime_by_account').all()
+    for (const r of accRows) {
+      let bMod = {}
+      try { bMod = JSON.parse(r.by_model_json || '{}') } catch {}
+      byAccount[r.account_id] = {
+        accountId: r.account_id,
+        name: r.name || (r.account_id === 'legacy' ? '历史/未分配账号' : '已配置账号'),
+        email: r.email || '',
+        requests: Number(r.requests) || 0,
+        inputTokens: Number(r.input_tokens) || 0,
+        outputTokens: Number(r.output_tokens) || 0,
+        cacheReadTokens: Number(r.cache_read_tokens) || 0,
+        reasoningTokens: Number(r.reasoning_tokens) || 0,
+        totalTokens: Number(r.total_tokens) || 0,
+        byModel: bMod,
+      }
+    }
+
+    let summary = {
+      totalRequests: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalReasoningTokens: 0,
+      firstUsed: null,
+      lastUsed: null,
+    }
+    let byModel = {}
 
     if (filterAccountId && filterAccountId !== 'all') {
-      const accStats = this.stats.byAccount && (this.stats.byAccount[filterAccountId] || (filterAccountId === 'legacy' ? this.stats.byAccount['legacy'] : null))
-      if (accStats) {
+      const accKey = filterAccountId
+      const accStat = byAccount[accKey]
+      if (accStat) {
         summary = {
-          totalRequests: accStats.requests || 0,
-          totalInputTokens: accStats.inputTokens || 0,
-          totalOutputTokens: accStats.outputTokens || 0,
-          totalCacheReadTokens: accStats.cacheReadTokens || 0,
-          totalReasoningTokens: accStats.reasoningTokens || 0,
+          totalRequests: accStat.requests || 0,
+          totalInputTokens: accStat.inputTokens || 0,
+          totalOutputTokens: accStat.outputTokens || 0,
+          totalCacheReadTokens: accStat.cacheReadTokens || 0,
+          totalReasoningTokens: accStat.reasoningTokens || 0,
           firstUsed: null,
           lastUsed: null,
         }
-        byModel = accStats.byModel || {}
-      } else {
+        byModel = accStat.byModel || {}
+      }
+    } else {
+      const sumRow = this.db.prepare('SELECT * FROM usage_lifetime_summary WHERE id = 1').get()
+      if (sumRow) {
         summary = {
-          totalRequests: 0,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalCacheReadTokens: 0,
-          totalReasoningTokens: 0,
-          firstUsed: null,
-          lastUsed: null,
+          totalRequests: Number(sumRow.total_requests) || 0,
+          totalInputTokens: Number(sumRow.total_input_tokens) || 0,
+          totalOutputTokens: Number(sumRow.total_output_tokens) || 0,
+          totalCacheReadTokens: Number(sumRow.total_cache_read_tokens) || 0,
+          totalReasoningTokens: Number(sumRow.total_reasoning_tokens) || 0,
+          firstUsed: sumRow.first_used,
+          lastUsed: sumRow.last_used,
         }
-        byModel = {}
+      }
+      const mRows = this.db.prepare('SELECT * FROM usage_lifetime_by_model').all()
+      for (const m of mRows) {
+        byModel[m.model] = {
+          requests: Number(m.requests) || 0,
+          inputTokens: Number(m.input_tokens) || 0,
+          outputTokens: Number(m.output_tokens) || 0,
+          cacheReadTokens: Number(m.cache_read_tokens) || 0,
+          reasoningTokens: Number(m.reasoning_tokens) || 0,
+          totalTokens: Number(m.total_tokens) || 0,
+        }
       }
     }
 
@@ -817,14 +1261,24 @@ class UsageTracker {
       : '0.0%'
     const totalTokens = summary.totalInputTokens + summary.totalOutputTokens + summary.totalReasoningTokens
 
-    const now = Date.now()
+    const daily = {}
+    const dailyRows = this.db.prepare('SELECT * FROM usage_daily_summary ORDER BY day ASC').all()
+    for (const d of dailyRows) {
+      daily[d.day] = {
+        requests: Number(d.requests) || 0,
+        inputTokens: Number(d.input_tokens) || 0,
+        outputTokens: Number(d.output_tokens) || 0,
+        cacheReadTokens: Number(d.cache_read_tokens) || 0,
+        reasoningTokens: Number(d.reasoning_tokens) || 0,
+        totalTokens: Number(d.total_tokens) || 0,
+      }
+    }
 
-    // 5h window: if resetTime is provided, calculate [resetTime - 5h, resetTime]; otherwise [now - 5h, now]
+    const now = Date.now()
     const resetTime5hMs = options.resetTime5h ? new Date(options.resetTime5h).getTime() : now
     const end5h = !isNaN(resetTime5hMs) ? resetTime5hMs : now
     const start5h = end5h - (5 * 3600 * 1000)
 
-    // Weekly window: if resetTime is provided, calculate [resetTime - 7d, resetTime]; otherwise [now - 7d, now]
     const resetTimeWeeklyMs = options.resetTimeWeekly ? new Date(options.resetTimeWeekly).getTime() : now
     const endWeekly = !isNaN(resetTimeWeeklyMs) ? resetTimeWeeklyMs : now
     const startWeekly = endWeekly - (7 * 24 * 3600 * 1000)
@@ -832,11 +1286,21 @@ class UsageTracker {
     const window5h = this.aggregateWindow(start5h, end5h, filterAccountId)
     const windowWeekly = this.aggregateWindow(startWeekly, endWeekly, filterAccountId)
 
-    let filteredRecent = this.stats.recent || []
-    let filteredHistory = this.stats.history || this.stats.recent || []
+    let recentRows
+    let historyRows
+    const cutoff14d = now - (14 * 24 * 3600 * 1000)
+
     if (filterAccountId && filterAccountId !== 'all') {
-      filteredRecent = filteredRecent.filter(r => r.accountId === filterAccountId || (!r.accountId && filterAccountId === 'legacy'))
-      filteredHistory = filteredHistory.filter(r => r.accountId === filterAccountId || (!r.accountId && filterAccountId === 'legacy'))
+      if (filterAccountId === 'legacy') {
+        recentRows = this.db.prepare("SELECT * FROM usage_records WHERE account_id IS NULL OR account_id = '' OR account_id = 'legacy' ORDER BY timestamp_ms DESC LIMIT 50").all()
+        historyRows = this.db.prepare("SELECT * FROM usage_records WHERE timestamp_ms >= ? AND (account_id IS NULL OR account_id = '' OR account_id = 'legacy') ORDER BY timestamp_ms DESC LIMIT 20000").all(cutoff14d)
+      } else {
+        recentRows = this.db.prepare("SELECT * FROM usage_records WHERE account_id = ? ORDER BY timestamp_ms DESC LIMIT 50").all(filterAccountId)
+        historyRows = this.db.prepare("SELECT * FROM usage_records WHERE timestamp_ms >= ? AND account_id = ? ORDER BY timestamp_ms DESC LIMIT 20000").all(cutoff14d, filterAccountId)
+      }
+    } else {
+      recentRows = this.db.prepare("SELECT * FROM usage_records ORDER BY timestamp_ms DESC LIMIT 50").all()
+      historyRows = this.db.prepare("SELECT * FROM usage_records WHERE timestamp_ms >= ? ORDER BY timestamp_ms DESC LIMIT 20000").all(cutoff14d)
     }
 
     return {
@@ -847,10 +1311,10 @@ class UsageTracker {
         cacheSavingsRate,
       },
       byModel,
-      byAccount: this.stats.byAccount || {},
-      daily: this.stats.daily,
-      recent: filteredRecent,
-      history: filteredHistory,
+      byAccount,
+      daily,
+      recent: recentRows.map(mapRecordRow),
+      history: historyRows.map(mapRecordRow),
       windows: {
         '5h': window5h,
         weekly: windowWeekly,
@@ -859,40 +1323,42 @@ class UsageTracker {
   }
 
   reset(accountId) {
-    if (accountId && accountId !== 'all') {
-      if (this.stats.byAccount && this.stats.byAccount[accountId]) {
-        delete this.stats.byAccount[accountId]
-      }
-      if (Array.isArray(this.stats.recent)) {
-        this.stats.recent = this.stats.recent.filter(r => r.accountId !== accountId)
-      }
-      if (Array.isArray(this.stats.history)) {
-        this.stats.history = this.stats.history.filter(r => r.accountId !== accountId)
-      }
-    } else {
-      this.stats = {
-        summary: {
-          totalRequests: 0,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalCacheReadTokens: 0,
-          totalReasoningTokens: 0,
-          firstUsed: null,
-          lastUsed: null,
-        },
-        byModel: {},
-        byAccount: {},
-        daily: {},
-        recent: [],
-        history: [],
-      }
-    }
     try {
-      const filePath = getUsageFilePath()
-      const dir = path.dirname(filePath)
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(filePath, JSON.stringify(this.stats, null, 2), 'utf8')
-    } catch {}
+      this.db.exec('BEGIN TRANSACTION;')
+      if (accountId && accountId !== 'all') {
+        if (accountId === 'legacy') {
+          this.db.prepare("DELETE FROM usage_records WHERE account_id IS NULL OR account_id = '' OR account_id = 'legacy'").run()
+          this.db.prepare("DELETE FROM usage_lifetime_by_account WHERE account_id = 'legacy'").run()
+        } else {
+          this.db.prepare("DELETE FROM usage_records WHERE account_id = ?").run(accountId)
+          this.db.prepare("DELETE FROM usage_lifetime_by_account WHERE account_id = ?").run(accountId)
+        }
+      } else {
+        this.db.exec(`
+          DELETE FROM usage_records;
+          UPDATE usage_lifetime_summary SET
+            total_requests = 0,
+            total_input_tokens = 0,
+            total_output_tokens = 0,
+            total_cache_read_tokens = 0,
+            total_reasoning_tokens = 0,
+            first_used = NULL,
+            last_used = NULL
+          WHERE id = 1;
+          DELETE FROM usage_lifetime_by_model;
+          DELETE FROM usage_lifetime_by_account;
+          DELETE FROM usage_daily_summary;
+        `)
+      }
+      this.db.exec('COMMIT;')
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;') } catch {}
+      console.error('[antigravity] Failed to reset usage statistics in SQLite:', err)
+    }
+  }
+
+  close() {
+    try { this.db.close() } catch {}
   }
 }
 
@@ -1009,23 +1475,26 @@ class QuotaService {
     this.cache = null
     this.cacheExpiresAt = 0
     this.fetchPromise = null
-    this.cachedAccessToken = null
+    this.cachedKey = null
   }
 
   clearCache() {
     this.cache = null
     this.cacheExpiresAt = 0
     this.fetchPromise = null
-    this.cachedAccessToken = null
+    this.cachedKey = null
   }
 
-  async getQuota(accessToken, baseURL, project, force = false) {
+  async getQuota(accessToken, baseURL, project, force = false, proxy = null) {
     const now = Date.now()
-    if (!force && this.cache && this.cachedAccessToken === accessToken && now < this.cacheExpiresAt) {
+    const normProxy = normalizeProxyUrl(proxy)
+    const cacheKey = `${accessToken}_${normProxy || ''}`
+    if (!force && this.cache && this.cachedKey === cacheKey && now < this.cacheExpiresAt) {
       return this.cache
     }
-    if (this.fetchPromise && this.cachedAccessToken === accessToken) return this.fetchPromise
+    if (this.fetchPromise && this.cachedKey === cacheKey) return this.fetchPromise
 
+    this.cachedKey = cacheKey
     this.fetchPromise = (async () => {
       try {
         const headers = {
@@ -1038,33 +1507,33 @@ class QuotaService {
         // 1. retrieveUserQuotaSummary
         let quotaData = null
         try {
-          const quotaRes = await fetch(`${baseURL}:retrieveUserQuotaSummary`, {
+          const quotaRes = await antigravityFetch(`${baseURL}:retrieveUserQuotaSummary`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ project: project || 'default' }),
-          })
+          }, normProxy)
           if (quotaRes.ok) quotaData = await quotaRes.json()
         } catch {}
 
         // 2. fetchAvailableModels
         let modelsData = null
         try {
-          const modelsRes = await fetch(`${baseURL}:fetchAvailableModels`, {
+          const modelsRes = await antigravityFetch(`${baseURL}:fetchAvailableModels`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ project: project || 'default' }),
-          })
+          }, normProxy)
           if (modelsRes.ok) modelsData = await modelsRes.json()
         } catch {}
 
         // 3. loadCodeAssist
         let lcaData = null
         try {
-          const lcaRes = await fetch(`${baseURL}:loadCodeAssist`, {
+          const lcaRes = await antigravityFetch(`${baseURL}:loadCodeAssist`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
-          })
+          }, normProxy)
           if (lcaRes.ok) lcaData = await lcaRes.json()
         } catch {}
 
@@ -1124,7 +1593,7 @@ class QuotaService {
         }
 
         this.cache = result
-        this.cachedAccessToken = accessToken
+        this.cachedKey = cacheKey
         this.cacheExpiresAt = Date.now() + 15_000 // 15s cache
         return result
       } finally {
@@ -2104,6 +2573,11 @@ class AntigravityAdapter extends LlmAdapter {
     }
   }
 
+  getActiveProxy() {
+    const activeAcc = this.config.getActiveAccount ? this.config.getActiveAccount() : null
+    return activeAcc?.proxy || null
+  }
+
   providerInfo(provider) {
     return { id: provider, name: 'Antigravity' }
   }
@@ -2155,6 +2629,7 @@ class AntigravityAdapter extends LlmAdapter {
       return this.token.accessToken
     }
     if (this.refreshing !== undefined) return this.refreshing
+    const proxy = this.getActiveProxy()
     this.refreshing = (async () => {
       const params = new URLSearchParams({
         client_id: connection.clientId,
@@ -2164,13 +2639,13 @@ class AntigravityAdapter extends LlmAdapter {
       })
       let response
       try {
-        response = await fetch(TOKEN_URL, {
+        response = await antigravityFetch(TOKEN_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/x-www-form-urlencoded', ...attributionHeaders() },
           body: params.toString(),
-        })
+        }, proxy)
       } catch (error) {
-        throw new LlmError('antigravity: OAuth token refresh request failed', 'TRANSPORT', { cause: error })
+        throw new LlmError(`antigravity: OAuth token refresh request failed${proxy ? ` (proxy: ${maskProxy(proxy)})` : ''}`, 'TRANSPORT', { cause: error })
       }
       if (!response.ok) {
         const body = await response.text().catch(() => '')
@@ -2202,8 +2677,9 @@ class AntigravityAdapter extends LlmAdapter {
     const connection = this.config.options()
     if (connection.project !== undefined && connection.project.length > 0) return connection.project
     if (this.projectAccessToken === accessToken && this.project !== undefined) return this.project
+    const proxy = this.getActiveProxy()
     try {
-      const response = await fetch(LOAD_CODE_ASSIST_URL, {
+      const response = await antigravityFetch(LOAD_CODE_ASSIST_URL, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${accessToken}`,
@@ -2212,7 +2688,7 @@ class AntigravityAdapter extends LlmAdapter {
           'user-agent': OFFICIAL_USER_AGENT,
         },
         body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
-      })
+      }, proxy)
       if (response.ok) {
         const data = await response.json()
         const project = data.cloudaicompanionProject
@@ -2292,17 +2768,18 @@ class AntigravityAdapter extends LlmAdapter {
           'user-agent': OFFICIAL_USER_AGENT,
           ...(withProjectHeader && project !== 'default' && project.length > 0 ? { 'x-goog-user-project': project } : {}),
         }
+        const proxy = this.getActiveProxy()
         let response
         try {
-          response = await fetch(`${baseURL}:streamGenerateContent?alt=sse`, {
+          response = await antigravityFetch(`${baseURL}:streamGenerateContent?alt=sse`, {
             method: 'POST',
             headers,
             body: payload,
             signal,
-          })
+          }, proxy)
         } catch (error) {
           if (signal.aborted) throw error
-          lastError = new LlmError(`antigravity request to ${baseURL} failed`, 'TRANSPORT', { cause: error })
+          lastError = new LlmError(`antigravity request to ${baseURL} failed${proxy ? ` (proxy: ${maskProxy(proxy)})` : ''}`, 'TRANSPORT', { cause: error })
           continue
         }
         // [FIX #3074] 403 with project header -> retry without it (SERVICE_DISABLED downgrade).
@@ -2574,6 +3051,7 @@ function apply(ctx, config) {
               const acc = await accountsManager.addAccount({
                 name: body.name,
                 refreshToken: body.refreshToken,
+                proxy: body.proxy,
                 setActive: body.setActive ?? false,
               })
               res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -2588,6 +3066,9 @@ function apply(ctx, config) {
                   active: acc.id === accountsManager.data.activeAccountId,
                   tokenMasked: maskToken(acc.refreshToken),
                   hasToken: true,
+                  proxy: acc.proxy || '',
+                  proxyMasked: maskProxy(acc.proxy),
+                  hasProxy: Boolean(acc.proxy && acc.proxy.trim().length > 0),
                 },
                 activeAccountId: accountsManager.data.activeAccountId,
                 accounts: accountsManager.getAccountsView()
@@ -2624,12 +3105,46 @@ function apply(ctx, config) {
             return
           }
 
+          // POST /api/antigravity/proxy/test (Test proxy connection)
+          if (pathName === '/api/antigravity/proxy/test' && req.method === 'POST') {
+            try {
+              const body = await readJsonBody()
+              const rawProxy = body.proxy
+              const normProxy = normalizeProxyUrl(rawProxy)
+              if (!normProxy) {
+                res.writeHead(400, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ ok: false, error: '代理地址格式不正确，支持 http:// 或 socks5://' }))
+                return
+              }
+              const startTime = Date.now()
+              const testRes = await antigravityFetch('https://www.google.com/generate_204', {
+                method: 'GET',
+                signal: AbortSignal.timeout(10000),
+              }, normProxy)
+              const latencyMs = Date.now() - startTime
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({
+                ok: true,
+                status: testRes.status,
+                latencyMs,
+                proxy: maskProxy(normProxy)
+              }))
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({
+                ok: false,
+                error: err.message || String(err)
+              }))
+            }
+            return
+          }
+
           // POST /api/antigravity/accounts/validate (Validate token without saving)
           if (pathName === '/api/antigravity/accounts/validate' && req.method === 'POST') {
             try {
               const body = await readJsonBody()
               const connection = options()
-              const meta = await validateAndFetchMetadata(body.refreshToken, connection.clientId, connection.clientSecret)
+              const meta = await validateAndFetchMetadata(body.refreshToken, connection.clientId, connection.clientSecret, body.proxy)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ ok: true, ...meta }))
             } catch (err) {
@@ -2659,6 +3174,9 @@ function apply(ctx, config) {
                     active: acc.id === accountsManager.data.activeAccountId,
                     tokenMasked: maskToken(acc.refreshToken),
                     hasToken: true,
+                    proxy: acc.proxy || '',
+                    proxyMasked: maskProxy(acc.proxy),
+                    hasProxy: Boolean(acc.proxy && acc.proxy.trim().length > 0),
                   },
                   activeAccountId: accountsManager.data.activeAccountId,
                   accounts: accountsManager.getAccountsView()
@@ -2745,16 +3263,21 @@ function apply(ctx, config) {
               const connection = options()
               const accountId = url.searchParams.get('accountId')
               let targetToken = null
+              let targetProxy = null
               if (accountId) {
                 const targetAcc = accountsManager.data.accounts.find(a => a.id === accountId)
                 if (targetAcc && targetAcc.refreshToken) {
                   targetToken = targetAcc.refreshToken
+                  targetProxy = targetAcc.proxy || null
                 }
+              } else {
+                const activeAcc = accountsManager.getActiveAccount()
+                targetProxy = activeAcc?.proxy || null
               }
               let accessToken
               let project
               if (targetToken && targetToken !== adapter.lastRefreshToken) {
-                const meta = await validateAndFetchMetadata(targetToken, connection.clientId, connection.clientSecret)
+                const meta = await validateAndFetchMetadata(targetToken, connection.clientId, connection.clientSecret, targetProxy)
                 accessToken = meta.accessToken
                 project = meta.project
               } else {
@@ -2762,7 +3285,7 @@ function apply(ctx, config) {
                 project = await adapter.ensureProject(accessToken)
               }
               const force = url.searchParams.get('force') === 'true' || req.method === 'POST'
-              const quota = await quotaService.getQuota(accessToken, connection.baseURL, project, force)
+              const quota = await quotaService.getQuota(accessToken, connection.baseURL, project, force, targetProxy)
               res.writeHead(200, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify(quota))
             } catch (err) {

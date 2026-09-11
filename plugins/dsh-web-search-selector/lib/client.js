@@ -54,6 +54,7 @@
 					const subs = new Set();
 					return {
 						get: () => s,
+						getSnapshot: () => s,
 						set: (n) => { s = n; subs.forEach((cb) => cb()); },
 						subscribe: (cb) => { subs.add(cb); return () => subs.delete(cb); }
 					};
@@ -217,9 +218,8 @@
 		}
 
 		class WebSearchSelectorController {
-			constructor(scope, api) {
+			constructor(scope) {
 				this.scope = scope;
-				this.api = api;
 				this.draft = void 0;
 				this.saving = false;
 				this.store = (0, _deepseek_ai_dsh_client_runtime_client.createSnapshotStore)(this.projection());
@@ -254,12 +254,9 @@
 			async reset() {
 				this.draft = void 0;
 				try {
-					await this.api.settings.mutate({
-						ns: NS,
-						ops: [{ op: "delete", path: ["provider"] }]
-					});
+					await this.scope.unset("provider");
 				} catch (e) {
-					console.error(e);
+					console.error("web-search-selector: reset failed", e);
 				}
 				this.store.set(this.projection());
 			}
@@ -269,13 +266,10 @@
 				this.saving = true;
 				this.store.set(this.projection());
 				try {
-					await this.api.settings.mutate({
-						ns: NS,
-						ops: [{ op: "set", path: ["provider"], value: this.draft }]
-					});
+					await this.scope.set("provider", this.draft);
 					this.draft = void 0;
 				} catch (e) {
-					console.error(e);
+					console.error("web-search-selector: save failed", e);
 				} finally {
 					this.saving = false;
 					this.store.set(this.projection());
@@ -296,18 +290,15 @@
 		const inject = [
 			"slots",
 			"locale",
-			"connection",
 			"settingsScope"
 		];
 
 		function apply(ctx) {
-			const { api } = ctx.get("connection");
 			const t = ctx.locale.bind(NS);
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "web-search-selector: locales");
 
 			const controller = new WebSearchSelectorController(
-				ctx.settingsScope.bind({ namespace: NS }),
-				api
+				ctx.settingsScope.bind({ namespace: NS })
 			);
 
 			ctx.slots.inject("settings.plugin.item", function* () {

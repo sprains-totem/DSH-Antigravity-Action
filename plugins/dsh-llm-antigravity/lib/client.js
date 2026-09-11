@@ -20,6 +20,22 @@
 		deleteAccount: "Delete",
 		confirmDeleteAccount: "Are you sure you want to delete this account?",
 		accountDeleted: "Account deleted",
+		editAccount: "Edit",
+		cancelEdit: "Cancel",
+		saveAccountChanges: "Save Changes",
+		savingAccount: "Saving…",
+		accountUpdated: "Account updated successfully",
+		editAccountTitle: "Edit Account & Proxy",
+		proxyLabel: "Dedicated Proxy (HTTP / SOCKS5, Optional)",
+		proxyPlaceholder: "e.g. socks5://127.0.0.1:1080 or http://user:pass@127.0.0.1:7890 (Empty for direct)",
+		proxyHint: "Supports HTTP, HTTPS, and SOCKS5. Supports optional authentication (protocol://user:pass@host:port). Leave empty for direct connection.",
+		proxyDirect: "Direct (No Proxy)",
+		proxyConfigured: "Proxy Configured",
+		testProxyBtn: "Test Connection",
+		testingProxy: "Testing…",
+		proxyTestSuccess: "Proxy connected successfully",
+		proxyTestFailed: "Proxy connection failed",
+		proxyEmptyPrompt: "Please enter a proxy URL to test",
 		accountNameLabel: "Account Name / Tag",
 		accountNamePlaceholder: "e.g. Work, Personal (Leave empty to use email)",
 		accountTokenLabel: "Refresh Token",
@@ -182,6 +198,22 @@
 		deleteAccount: "删除",
 		confirmDeleteAccount: "确定要删除该账号吗？",
 		accountDeleted: "账号已删除",
+		editAccount: "编辑",
+		cancelEdit: "取消",
+		saveAccountChanges: "保存修改",
+		savingAccount: "保存中…",
+		accountUpdated: "账号配置已更新",
+		editAccountTitle: "编辑账号与代理",
+		proxyLabel: "独立代理配置 (HTTP / SOCKS5，可选)",
+		proxyPlaceholder: "例如: socks5://127.0.0.1:1080 或 http://user:pass@127.0.0.1:7890 (留空直连)",
+		proxyHint: "支持 HTTP、HTTPS 与 SOCKS5 代理；支持无密码或带账号密码认证（protocol://user:pass@host:port）。留空则使用本地直连。",
+		proxyDirect: "直连 (无代理)",
+		proxyConfigured: "已配置代理",
+		testProxyBtn: "测试连接",
+		testingProxy: "测试中…",
+		proxyTestSuccess: "代理连接成功",
+		proxyTestFailed: "代理连接失败",
+		proxyEmptyPrompt: "请先输入要测试的代理地址",
 		accountNameLabel: "账号名称 / 备注",
 		accountNamePlaceholder: "例如：个人主号、工作号（留空自动使用邮箱）",
 		accountTokenLabel: "Refresh Token",
@@ -496,6 +528,21 @@
 			const [switchingAccountId, setSwitchingAccountId] = react.useState(null);
 			const [newAccountName, setNewAccountName] = react.useState("");
 			const [newAccountToken, setNewAccountToken] = react.useState("");
+			const [newAccountProxy, setNewAccountProxy] = react.useState("");
+			const [testingProxy, setTestingProxy] = react.useState(false);
+			const [proxyTestResult, setProxyTestResult] = react.useState(null);
+
+			// Editing account state
+			const [editingAccountId, setEditingAccountId] = react.useState(null);
+			const [editAccountName, setEditAccountName] = react.useState("");
+			const [editAccountToken, setEditAccountToken] = react.useState("");
+			const [editAccountProxy, setEditAccountProxy] = react.useState("");
+			const [savingEditAccount, setSavingEditAccount] = react.useState(false);
+			const [testingEditProxy, setTestingEditProxy] = react.useState(false);
+			const [editProxyTestResult, setEditProxyTestResult] = react.useState(null);
+			const [testingCardProxyId, setTestingCardProxyId] = react.useState(null);
+			const [cardProxyTestResults, setCardProxyTestResults] = react.useState({});
+
 			const [addingAccount, setAddingAccount] = react.useState(false);
 			const [accountError, setAccountError] = react.useState(null);
 			const [accountSuccess, setAccountSuccess] = react.useState(null);
@@ -809,6 +856,123 @@
 				}
 			}, [t, fetchQuota, fetchUsage]);
 
+			const handleTestProxy = react.useCallback(async (proxyStr, targetType, accountId) => {
+				if (!proxyStr || !proxyStr.trim()) {
+					if (targetType === "new") {
+						setProxyTestResult({ ok: false, msg: t("proxyEmptyPrompt") || "请输入代理地址" });
+					} else if (targetType === "edit") {
+						setEditProxyTestResult({ ok: false, msg: t("proxyEmptyPrompt") || "请输入代理地址" });
+					}
+					return;
+				}
+				if (targetType === "new") {
+					setTestingProxy(true);
+					setProxyTestResult(null);
+				} else if (targetType === "edit") {
+					setTestingEditProxy(true);
+					setEditProxyTestResult(null);
+				} else if (targetType === "card" && accountId) {
+					setTestingCardProxyId(accountId);
+				}
+				try {
+					const res = await fetch("/api/antigravity/proxy/test", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ proxy: proxyStr.trim() })
+					});
+					const data = await res.json();
+					const result = data.ok
+						? { ok: true, msg: `✓ ${t("proxyTestSuccess")} (${data.latencyMs}ms)` }
+						: { ok: false, msg: `✗ ${t("proxyTestFailed")}: ${data.error}` };
+					if (targetType === "new") {
+						setProxyTestResult(result);
+					} else if (targetType === "edit") {
+						setEditProxyTestResult(result);
+					} else if (targetType === "card" && accountId) {
+						setCardProxyTestResults(prev => ({ ...prev, [accountId]: result }));
+						setTimeout(() => {
+							setCardProxyTestResults(prev => {
+								const next = { ...prev };
+								delete next[accountId];
+								return next;
+							});
+						}, 5000);
+					}
+				} catch (err) {
+					const result = { ok: false, msg: `✗ ${t("proxyTestFailed")}: ${err.message || String(err)}` };
+					if (targetType === "new") {
+						setProxyTestResult(result);
+					} else if (targetType === "edit") {
+						setEditProxyTestResult(result);
+					} else if (targetType === "card" && accountId) {
+						setCardProxyTestResults(prev => ({ ...prev, [accountId]: result }));
+					}
+				} finally {
+					if (targetType === "new") setTestingProxy(false);
+					if (targetType === "edit") setTestingEditProxy(false);
+					if (targetType === "card") setTestingCardProxyId(null);
+				}
+			}, [t]);
+
+			const startEditAccount = react.useCallback((acc) => {
+				setEditingAccountId(acc.id);
+				setEditAccountName(acc.name || "");
+				setEditAccountToken("");
+				setEditAccountProxy(acc.proxy || "");
+				setEditProxyTestResult(null);
+				setAccountError(null);
+			}, []);
+
+			const cancelEditAccount = react.useCallback(() => {
+				setEditingAccountId(null);
+				setEditAccountName("");
+				setEditAccountToken("");
+				setEditAccountProxy("");
+				setEditProxyTestResult(null);
+			}, []);
+
+			const handleUpdateAccount = react.useCallback(async (id) => {
+				setSavingEditAccount(true);
+				setAccountError(null);
+				try {
+					const payload = {
+						name: editAccountName.trim(),
+						proxy: editAccountProxy.trim(),
+					};
+					if (editAccountToken && editAccountToken.trim()) {
+						payload.refreshToken = editAccountToken.trim();
+					}
+					const res = await fetch(`/api/antigravity/accounts/${id}`, {
+						method: "PUT",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload)
+					});
+					const data = await res.json();
+					if (data.ok) {
+						setEditingAccountId(null);
+						setEditProxyTestResult(null);
+						setAccountsData(prev => ({
+							...prev,
+							activeAccountId: data.activeAccountId,
+							accounts: data.accounts || prev.accounts
+						}));
+						setAccountSuccess(t("accountUpdated"));
+						setTimeout(() => setAccountSuccess(null), 3500);
+						if (data.activeAccountId === id) {
+							setQuotaData(null);
+							fetchQuota(true);
+							fetchUsage();
+						}
+					} else {
+						setAccountError(data.error || "Failed to update account");
+					}
+				} catch (e) {
+					setAccountError(e.message || "Network error");
+				} finally {
+					setSavingEditAccount(false);
+				}
+			}, [editAccountName, editAccountToken, editAccountProxy, t, fetchQuota, fetchUsage]);
+
 			const handleAddAccount = react.useCallback(async () => {
 				if (!newAccountToken.trim()) {
 					setAccountError(t("accountTokenRequired"));
@@ -823,6 +987,7 @@
 						body: JSON.stringify({
 							name: newAccountName.trim(),
 							refreshToken: newAccountToken.trim(),
+							proxy: newAccountProxy.trim(),
 							setActive: true
 						})
 					});
@@ -830,6 +995,8 @@
 					if (data.ok) {
 						setNewAccountName("");
 						setNewAccountToken("");
+						setNewAccountProxy("");
+						setProxyTestResult(null);
 						setAccountsData(prev => ({
 							...prev,
 							activeAccountId: data.activeAccountId,
@@ -848,7 +1015,7 @@
 				} finally {
 					setAddingAccount(false);
 				}
-			}, [newAccountName, newAccountToken, t, fetchQuota, fetchUsage]);
+			}, [newAccountName, newAccountToken, newAccountProxy, t, fetchQuota, fetchUsage]);
 
 			const handleDeleteAccount = react.useCallback(async (id) => {
 				if (!confirm(t("confirmDeleteAccount"))) return;
@@ -1771,8 +1938,150 @@
 												children: t("noAccountsYet")
 											}) : (0, react_jsx_runtime.jsx)("div", {
 												style: { display: "flex", flexDirection: "column", gap: 8 },
-												children: accountsData.accounts.map(acc => (
-													(0, react_jsx_runtime.jsxs)("div", {
+												children: accountsData.accounts.map(acc => {
+													const isEditing = editingAccountId === acc.id;
+													if (isEditing) {
+														return (0, react_jsx_runtime.jsxs)("div", {
+															key: acc.id,
+															style: {
+																padding: "14px 16px",
+																borderRadius: 8,
+																border: "1.5px solid var(--dsw-alias-brand-primary, #0284c7)",
+																background: "var(--dsw-alias-bg-module-platform, #f0f9ff)",
+																display: "flex",
+																flexDirection: "column",
+																gap: 12
+															},
+															children: [
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("span", {
+																			style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary, #111827)" },
+																			children: `✏️ ${t("editAccountTitle")}`
+																		}),
+																		(0, react_jsx_runtime.jsx)("button", {
+																			type: "button",
+																			style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #6b7280)", background: "none", border: "none", cursor: "pointer" },
+																			onClick: cancelEditAccount,
+																			children: "✕"
+																		})
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	children: [
+																		(0, react_jsx_runtime.jsx)("label", {
+																			style: { display: "block", fontSize: 11, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																			children: t("accountNameLabel")
+																		}),
+																		(0, react_jsx_runtime.jsx)("input", {
+																			type: "text",
+																			value: editAccountName,
+																			onChange: (e) => setEditAccountName(e.target.value),
+																			placeholder: t("accountNamePlaceholder"),
+																			style: { width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--dsw-alias-border-l2, #d1d5db)", background: "var(--dsw-alias-bg-layer-2, #ffffff)", boxSizing: "border-box" }
+																		})
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	children: [
+																		(0, react_jsx_runtime.jsx)("label", {
+																			style: { display: "block", fontSize: 11, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																			children: `${t("accountTokenLabel")} (${t("tokenPlaceholderSet")})`
+																		}),
+																		(0, react_jsx_runtime.jsx)("textarea", {
+																			rows: 2,
+																			value: editAccountToken,
+																			onChange: (e) => setEditAccountToken(e.target.value),
+																			placeholder: t("tokenPlaceholderSet"),
+																			style: { width: "100%", padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--dsw-alias-border-l2, #d1d5db)", background: "var(--dsw-alias-bg-layer-2, #ffffff)", fontFamily: "monospace", boxSizing: "border-box", resize: "vertical" }
+																		})
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	children: [
+																		(0, react_jsx_runtime.jsx)("label", {
+																			style: { display: "block", fontSize: 11, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																			children: t("proxyLabel")
+																		}),
+																		(0, react_jsx_runtime.jsxs)("div", {
+																			style: { display: "flex", gap: 8, alignItems: "center" },
+																			children: [
+																				(0, react_jsx_runtime.jsx)("input", {
+																					type: "text",
+																					value: editAccountProxy,
+																					onChange: (e) => setEditAccountProxy(e.target.value),
+																					placeholder: t("proxyPlaceholder"),
+																					style: { flex: 1, padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--dsw-alias-border-l2, #d1d5db)", background: "var(--dsw-alias-bg-layer-2, #ffffff)", fontFamily: "monospace", boxSizing: "border-box" }
+																				}),
+																				(0, react_jsx_runtime.jsx)("button", {
+																					type: "button",
+																					style: {
+																						padding: "6px 12px",
+																						fontSize: 12,
+																						borderRadius: 6,
+																						border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																						background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																						color: "var(--dsw-alias-brand-primary, #0284c7)",
+																						cursor: testingEditProxy ? "not-allowed" : "pointer",
+																						whiteSpace: "nowrap",
+																						fontWeight: 500
+																					},
+																					disabled: testingEditProxy,
+																					onClick: () => handleTestProxy(editAccountProxy, "edit"),
+																					children: testingEditProxy ? t("testingProxy") : `⚡ ${t("testProxyBtn")}`
+																				})
+																			]
+																		}),
+																		editProxyTestResult ? (0, react_jsx_runtime.jsx)("div", {
+																			style: { marginTop: 6, fontSize: 11, color: editProxyTestResult.ok ? "#16a34a" : "#dc2626", fontWeight: 500 },
+																			children: editProxyTestResult.msg
+																		}) : (0, react_jsx_runtime.jsx)("div", {
+																			style: { marginTop: 4, fontSize: 11, color: "var(--dsw-alias-label-secondary, #6b7280)" },
+																			children: t("proxyHint")
+																		})
+																	]
+																}),
+																(0, react_jsx_runtime.jsxs)("div", {
+																	style: { display: "flex", gap: 8, marginTop: 4 },
+																	children: [
+																		(0, react_jsx_runtime.jsx)("button", {
+																			type: "button",
+																			style: {
+																				padding: "6px 16px",
+																				fontSize: 12,
+																				fontWeight: 500,
+																				borderRadius: 6,
+																				border: "none",
+																				background: "var(--dsw-alias-brand-primary, #0284c7)",
+																				color: "#ffffff",
+																				cursor: savingEditAccount ? "not-allowed" : "pointer"
+																			},
+																			disabled: savingEditAccount,
+																			onClick: () => handleUpdateAccount(acc.id),
+																			children: savingEditAccount ? t("savingAccount") : `✓ ${t("saveAccountChanges")}`
+																		}),
+																		(0, react_jsx_runtime.jsx)("button", {
+																			type: "button",
+																			style: {
+																				padding: "6px 14px",
+																				fontSize: 12,
+																				borderRadius: 6,
+																				border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																				background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																				color: "var(--dsw-alias-label-primary, #374151)",
+																				cursor: "pointer"
+																			},
+																			onClick: cancelEditAccount,
+																			children: t("cancelEdit")
+																		})
+																	]
+																})
+															]
+														});
+													}
+
+													return (0, react_jsx_runtime.jsxs)("div", {
 														key: acc.id,
 														style: {
 															display: "flex",
@@ -1813,6 +2122,34 @@
 																			acc.project ? (0, react_jsx_runtime.jsx)("span", { children: `📁 ${acc.project}` }) : null,
 																			acc.tokenMasked ? (0, react_jsx_runtime.jsx)("span", { style: { fontFamily: "monospace" }, children: `🔑 ${acc.tokenMasked}` }) : null
 																		]
+																	}),
+																	(0, react_jsx_runtime.jsxs)("div", {
+																		style: { display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: acc.hasProxy ? "var(--dsw-alias-brand-primary, #0284c7)" : "var(--dsw-alias-label-secondary, #6b7280)", marginTop: 2, flexWrap: "wrap" },
+																		children: [
+																			(0, react_jsx_runtime.jsx)("span", {
+																				style: { fontFamily: acc.hasProxy ? "monospace" : "inherit" },
+																				children: acc.hasProxy ? `🌐 ${acc.proxyMasked}` : `🌐 ${t("proxyDirect")}`
+																			}),
+																			acc.hasProxy ? (0, react_jsx_runtime.jsx)("button", {
+																				type: "button",
+																				style: {
+																					padding: "1px 6px",
+																					fontSize: 10,
+																					borderRadius: 4,
+																					border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																					background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																					color: "var(--dsw-alias-brand-primary, #0284c7)",
+																					cursor: testingCardProxyId === acc.id ? "not-allowed" : "pointer"
+																				},
+																				disabled: testingCardProxyId === acc.id,
+																				onClick: () => handleTestProxy(acc.proxy, "card", acc.id),
+																				children: testingCardProxyId === acc.id ? t("testingProxy") : `⚡ ${t("testProxyBtn")}`
+																			}) : null,
+																			cardProxyTestResults[acc.id] ? (0, react_jsx_runtime.jsx)("span", {
+																				style: { fontSize: 10, color: cardProxyTestResults[acc.id].ok ? "#16a34a" : "#dc2626", fontWeight: 500 },
+																				children: cardProxyTestResults[acc.id].msg
+																			}) : null
+																		]
 																	})
 																]
 															}),
@@ -1843,6 +2180,21 @@
 																			borderRadius: 6,
 																			border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
 																			background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																			color: "var(--dsw-alias-label-primary, #374151)",
+																			cursor: "pointer"
+																		},
+																		title: t("editAccount"),
+																		onClick: () => startEditAccount(acc),
+																		children: "✏️"
+																	}),
+																	(0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: {
+																			padding: "4px 8px",
+																			fontSize: 12,
+																			borderRadius: 6,
+																			border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																			background: "var(--dsw-alias-bg-layer-2, #ffffff)",
 																			color: "#dc2626",
 																			cursor: "pointer"
 																		},
@@ -1853,8 +2205,8 @@
 																]
 															})
 														]
-													})
-												))
+													});
+												})
 											})
 										]
 									}),
@@ -1922,6 +2274,60 @@
 																	boxSizing: "border-box",
 																	resize: "vertical"
 																}
+															})
+														]
+													}),
+													(0, react_jsx_runtime.jsxs)("div", {
+														children: [
+															(0, react_jsx_runtime.jsx)("label", {
+																style: { display: "block", fontSize: 12, fontWeight: 500, color: "var(--dsw-alias-label-primary, #374151)", marginBottom: 4 },
+																children: t("proxyLabel")
+															}),
+															(0, react_jsx_runtime.jsxs)("div", {
+																style: { display: "flex", gap: 8, alignItems: "center" },
+																children: [
+																	(0, react_jsx_runtime.jsx)("input", {
+																		type: "text",
+																		value: newAccountProxy,
+																		onChange: (e) => setNewAccountProxy(e.target.value),
+																		placeholder: t("proxyPlaceholder"),
+																		style: {
+																			flex: 1,
+																			padding: "8px 10px",
+																			fontSize: 12,
+																			borderRadius: 6,
+																			border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																			background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																			color: "var(--dsw-alias-label-primary, #111827)",
+																			fontFamily: "monospace",
+																			boxSizing: "border-box"
+																		}
+																	}),
+																	(0, react_jsx_runtime.jsx)("button", {
+																		type: "button",
+																		style: {
+																			padding: "8px 14px",
+																			fontSize: 12,
+																			borderRadius: 6,
+																			border: "1px solid var(--dsw-alias-border-l2, #d1d5db)",
+																			background: "var(--dsw-alias-bg-layer-2, #ffffff)",
+																			color: "var(--dsw-alias-brand-primary, #0284c7)",
+																			cursor: testingProxy ? "not-allowed" : "pointer",
+																			whiteSpace: "nowrap",
+																			fontWeight: 500
+																		},
+																		disabled: testingProxy,
+																		onClick: () => handleTestProxy(newAccountProxy, "new"),
+																		children: testingProxy ? t("testingProxy") : `⚡ ${t("testProxyBtn")}`
+																	})
+																]
+															}),
+															proxyTestResult ? (0, react_jsx_runtime.jsx)("div", {
+																style: { marginTop: 6, fontSize: 11, color: proxyTestResult.ok ? "#16a34a" : "#dc2626", fontWeight: 500 },
+																children: proxyTestResult.msg
+															}) : (0, react_jsx_runtime.jsx)("div", {
+																style: { marginTop: 4, fontSize: 11, color: "var(--dsw-alias-label-secondary, #6b7280)" },
+																children: t("proxyHint")
 															})
 														]
 													}),

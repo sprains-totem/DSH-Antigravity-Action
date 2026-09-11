@@ -53,26 +53,45 @@ const Config = z.object({
 
 function apply(ctx, config) {
   const patchPath = resolvePatchPath(ctx)
-  let readSection = () => ({ provider: 'antigravity' })
+  const initialFromPatch = currentProviderFromPatch(patchPath) ?? 'antigravity'
+  const effectiveConfig = {
+    provider: initialFromPatch,
+    ...config,
+  }
+  let readSection = () => effectiveConfig
+
+  const syncProvider = (provider) => {
+    if (provider !== undefined && PROVIDERS.includes(provider)) {
+      if (ctx.web) {
+        ctx.web.searchProviderId = provider
+      }
+      process.env.DSH_WEB_SEARCH_PROVIDER = provider
+      const current = currentProviderFromPatch(patchPath)
+      if (current !== provider) {
+        try {
+          applyProviderToPatch(patchPath, provider)
+          ctx.logger.info(`web-search-selector: searchProvider -> ${provider} (patch reloaded via HMR)`)
+        } catch (error) {
+          ctx.logger.error('web-search-selector: failed to write patch', error)
+        }
+      }
+    }
+  }
+
+  // Ensure in-memory web service matches initial patch provider
+  if (ctx.web && initialFromPatch) {
+    ctx.web.searchProviderId = initialFromPatch
+  }
+
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+    settingsCtx.settings.installSection(ctx, NS, Config, effectiveConfig, {
       setSource: (source) => {
         readSection = source
       },
       onChange: () => {
         const section = readSection() ?? {}
-        const provider = section.provider ?? 'antigravity'
-        if (provider !== undefined && PROVIDERS.includes(provider)) {
-          const current = currentProviderFromPatch(patchPath)
-          if (current !== provider) {
-            try {
-              applyProviderToPatch(patchPath, provider)
-              ctx.logger.info(`web-search-selector: searchProvider -> ${provider} (patch reloaded via HMR)`)
-            } catch (error) {
-              ctx.logger.error('web-search-selector: failed to write patch', error)
-            }
-          }
-        }
+        const provider = section.provider ?? initialFromPatch
+        syncProvider(provider)
       },
     })
   })
